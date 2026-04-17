@@ -14,6 +14,9 @@ Claude Code ships with `/rename` + `/resume`, but they fight you in practice:
 
 1. **`/save`** — a slash command that writes a curated markdown snapshot (status, decisions, pending, resume hint, timeline) to `.local/sessions/<name>.md`. Updates the file if it already exists. Syncs the `.local/sessions.md` index with disk every time.
 2. **`sl`** — a standalone bash/python script that lists every session file sorted by last-updated, with a substring filter. Works as a shell command with no LLM round-trip — pure CLI.
+3. **`statusline.sh`** — Claude Code status line that shows the active session name (from `.local/current-session`, written by `/save`), plus directory, git branch, and model.
+
+All three share the same session name via a single pointer file `.local/current-session`. Save a session and your statusline + `sl` list + chat context all line up. No fighting with Claude Code's built-in `/rename`.
 
 The session files are yours — edit them, grep them, share pieces with teammates. Disk is the source of truth.
 
@@ -35,6 +38,15 @@ chmod +x /path/to/your/project/scripts/sl
 cp scripts/sl ~/bin/sl  # or /usr/local/bin/sl
 chmod +x ~/bin/sl
 # Run from anywhere: sl
+
+# 3. Install the statusline (optional)
+cp bin/statusline.sh ~/.claude/statusline.sh
+chmod +x ~/.claude/statusline.sh
+# Add to ~/.claude/settings.json:
+#   "statusLine": {
+#     "type": "command",
+#     "command": "bash ~/.claude/statusline.sh"
+#   }
 ```
 
 Add `.local/` to your `.gitignore` so session files stay local.
@@ -125,6 +137,29 @@ resume_hint: |
 - Key decisions
 - What's next
 ```
+
+## How the pieces fit
+
+```
+             ┌──────────────────────────┐
+             │ /save ENG-123-oauth      │ ← you run this in Claude Code
+             └────────────┬─────────────┘
+                          │
+            ┌─────────────┼─────────────┐
+            ▼             ▼             ▼
+  .local/sessions/    .local/       .local/sessions.md
+  ENG-123-oauth.md    current-      (index, auto-synced
+  (full snapshot)     session       with disk)
+                      (pointer)
+                          │
+            ┌─────────────┼─────────────┐
+            ▼             ▼             ▼
+     statusline.sh      sl             future Claude sessions
+     ★ ENG-123-oauth    ★ ENG-123      read the snapshot
+     (in status bar)    (in list)      to resume
+```
+
+One command, one source of truth. The statusline + `sl` list + resume path all see the same active session name — no drift.
 
 ## Tips
 

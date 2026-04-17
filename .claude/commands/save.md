@@ -110,6 +110,18 @@ Sync workflow:
 
 Always run this full sync step during `/save`, not just when adding the current session. This prevents the index from accumulating dead links when the user deletes session files manually.
 
+### 5.5. Write Current-Session Pointer
+
+Write the session name to `.local/current-session` (one line, no trailing newline is fine):
+
+```bash
+echo "<session-name>" > .local/current-session
+```
+
+This pointer is read by the bundled `bin/statusline.sh` so the Claude Code status line shows the active session name. Every `/save` overwrites it — so the last-saved session is always the "current" one from the statusline's perspective.
+
+If the user wants to switch active session without saving (e.g. to show a different session in the statusline), they can either run `/save <name>` on the target session or edit `.local/current-session` manually.
+
 ### 6. Output
 
 After saving, print:

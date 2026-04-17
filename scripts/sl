@@ -31,6 +31,14 @@ def find_sessions_dir() -> Path | None:
     return None
 
 
+def read_current_session(sessions_dir: Path) -> str:
+    """Read the current session name from .local/current-session, if any."""
+    pointer = sessions_dir.parent / "current-session"
+    if pointer.is_file():
+        return pointer.read_text(encoding="utf-8", errors="replace").strip().splitlines()[0] if pointer.read_text().strip() else ""
+    return ""
+
+
 def parse_frontmatter(path: Path) -> dict:
     fm: dict = {}
     with path.open("r", encoding="utf-8", errors="replace") as f:
@@ -104,8 +112,10 @@ def main() -> int:
             print(f'No sessions match "{arg}".')
             return 0
 
+    current = read_current_session(sessions_dir)
+
     phase_w = 14
-    name_w = min(max(len(r[2]) for r in rows), 32)
+    name_w = min(max(len(r[2]) for r in rows), 32) + 2  # +2 for star marker
     size_w = max(4, max(len(r[3]) for r in rows))
     idx_w = max(2, len(str(len(rows))))
 
@@ -114,11 +124,13 @@ def main() -> int:
         f"{'SESSION':<{name_w}}  {'SIZE':>{size_w}}  STATUS"
     )
     for i, (upd, ph, nm, sz, status) in enumerate(rows, 1):
+        marker = "★ " if nm == current else "  "
         print(
             f"{i:>{idx_w}}  {upd:<10}  {truncate(ph, phase_w):<{phase_w}}  "
-            f"{truncate(nm, name_w):<{name_w}}  {sz:>{size_w}}  {truncate(status, 60)}"
+            f"{marker}{truncate(nm, name_w - 2):<{name_w - 2}}  {sz:>{size_w}}  {truncate(status, 60)}"
         )
-    print(f"{len(rows)} session(s) in {sessions_dir}")
+    suffix = f" (★ current: {current})" if current else ""
+    print(f"{len(rows)} session(s) in {sessions_dir}{suffix}")
     return 0
 
 
