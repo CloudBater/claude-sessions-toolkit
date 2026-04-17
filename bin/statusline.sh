@@ -46,10 +46,7 @@ if GIT_OPTIONAL_LOCKS=0 git -C "$CWD" rev-parse --is-inside-work-tree &>/dev/nul
 fi
 
 SESSION_NAME="$(find_current_session "$CWD" 2>/dev/null || true)"
-if [ -z "$SESSION_NAME" ]; then
-    # Fallback to Claude's built-in custom name
-    SESSION_NAME="$(jq_get '.session_name // .custom_name // empty')"
-fi
+# Disk-only — ignore Claude Code's /rename value (chat-only, doesn't survive)
 
 MODEL="$(jq_get '.model.display_name // .model.id // empty')"
 
