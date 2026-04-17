@@ -1,4 +1,4 @@
-# claude-sessions
+# claude-sessions-toolkit
 
 **A context lifecycle manager for Claude Code**, built on disk files instead of chat history. Sessions outlive the chat that created them, follow you across repos, and surface their cost on the statusline — so resuming an old topic is one `sl` filter away, not a hunt through the transcript.
 
@@ -8,7 +8,7 @@ Claude Code ships with `/rename` (label a chat) and `/resume` (reopen by filter)
 
 A unit of work has a lifecycle: **create → persist → track → switch → resume → retire.** `/rename` + `/resume` cover *name-a-chat* and *reopen-by-name-you-still-remember*. The other four steps are where real sessions die.
 
-| Lifecycle stage | `/rename` + `/resume` | `claude-sessions` |
+| Lifecycle stage | `/rename` + `/resume` | `claude-sessions-toolkit` |
 |---|---|---|
 | **Capture** state | Transcript *is* the state. Nothing curated. | `/save` writes a structured snapshot: status, phase, done, pending, decisions, resume_hint. |
 | **Persist** across chats | Name lives in-chat; dies with the conversation. | `.local/sessions/<name>.md` on disk. Survives restarts, rebuilds, branch switches, new machines. |
