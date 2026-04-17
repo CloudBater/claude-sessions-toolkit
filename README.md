@@ -1,24 +1,40 @@
 # claude-sessions
 
-Small toolkit for managing Claude Code sessions on disk, not just in the chat picker.
+**A context lifecycle manager for Claude Code**, built on disk files instead of chat history. Sessions outlive the chat that created them, follow you across repos, and surface their cost on the statusline — so resuming an old topic is one `sl` filter away, not a hunt through the transcript.
 
-## Why
+## Why `/rename` + `/resume` aren't enough
 
-Claude Code ships with `/rename` + `/resume`, but they fight you in practice:
+Claude Code ships with `/rename` (label a chat) and `/resume` (reopen by filter). They look like session management. In practice they manage *the chat window*, not *the unit of work* — and work outlives chats all the time.
 
-- `/rename` stores the name in-session only. Next week you remember "that OAuth thing" but not the exact name — you can't get back without it, and `/resume` now requires a filter (no full list).
-- Inevitable outcome: you start a new session with a slightly different name, end up with two similar-looking duplicates, neither holds the full context.
-- Chat history is long and unstructured. You don't want to re-read a 200-message transcript to recall what you decided.
+A unit of work has a lifecycle: **create → persist → track → switch → resume → retire.** `/rename` + `/resume` cover *name-a-chat* and *reopen-by-name-you-still-remember*. The other four steps are where real sessions die.
+
+| Lifecycle stage | `/rename` + `/resume` | `claude-sessions` |
+|---|---|---|
+| **Capture** state | Transcript *is* the state. Nothing curated. | `/save` writes a structured snapshot: status, phase, done, pending, decisions, resume_hint. |
+| **Persist** across chats | Name lives in-chat; dies with the conversation. | `.local/sessions/<name>.md` on disk. Survives restarts, rebuilds, branch switches, new machines. |
+| **Discover** past work | `/resume` needs a filter string you still remember; no list, no sort. | `sl` CLI: sorted by `updated`, ★ marks current, filter by name / phase / ticket. No LLM round-trip. |
+| **See** current load | Tab title of the chat that set it. | Statusline: `session-name (size)` rendered next to `ctx:N%` — both context-weight signals in one readout. |
+| **Switch** topics mid-chat | Silent overwrite of the old session's implicit context. | Drift detection: `/save` stops and asks before merging two topics into one file. |
+| **Follow** across repos | Bound to one chat in one cwd. | Global pointer fallback (`~/.claude/current-session`) lets the active name follow you into sibling repos. |
+| **Resume** cold | Re-read 200 messages. | `resume_hint` is a 2–3 sentence briefing; structured fields brief the next Claude without re-reading chat. |
+| **Retire** cleanly | No concept — you just stop using the chat. | `phase: done` locks the session; `/save` forces a new file instead of reopening it. |
 
 ## What this gives you
 
-1. **`/save`** — a slash command that writes a curated markdown snapshot (status, decisions, pending, resume hint, timeline) to `.local/sessions/<name>.md`. Updates the file if it already exists. Syncs the `.local/sessions.md` index with disk every time.
-2. **`sl`** — a standalone bash/python script that lists every session file sorted by last-updated, with a substring filter. Works as a shell command with no LLM round-trip — pure CLI.
-3. **`statusline.sh`** — Claude Code status line that shows the active session name (from `.local/current-session`, written by `/save`, with `~/.claude/current-session` as a cross-repo fallback), plus directory, git branch, and model.
+Three pieces that share state through two pointer files. All three agree on which session is active — the statusline, `sl` list, and `/save` output can't drift apart.
 
-All three share the same session name via `.local/current-session` (repo-local) and `~/.claude/current-session` (global fallback). Save a session and your statusline + `sl` list + chat context all line up — even when you `cd` into a sibling repo. No fighting with Claude Code's built-in `/rename`.
+1. **`/save`** — Claude Code slash command. Writes or updates `.local/sessions/<name>.md` with frontmatter + appended timeline entry. Detects topic drift. Offers compaction at 40 KB. Refuses to reopen sessions marked `phase: done`. Syncs the `.local/sessions.md` index on every save. Overwrites both pointer files.
 
-The session files are yours — edit them, grep them, share pieces with teammates. Disk is the source of truth.
+2. **`sl`** — standalone Python CLI. Lists every session sorted by `updated` with phase, size, `status` one-liner, and `★` on the active one. Walks up from cwd, so a single install works from any project subdirectory.
+
+3. **`statusline.sh`** — Claude Code status line (bash). Renders `cwd · branch · model · session-name (size) · ctx:N%`. Session file size sits immediately before live context usage so you read both as one "how much are we carrying" signal. Disk-only lookup (ignores `/rename`), repo-local pointer first, global fallback second.
+
+**Pointer files** (both overwritten by every `/save`):
+
+- `.local/current-session` — repo-local. Authoritative when cwd is inside the project. Read by `sl` (for ★) and by the statusline's walk-up.
+- `~/.claude/current-session` — global fallback. Read by the statusline when no repo-local pointer exists. The "session name follows me" mechanism for cross-repo work.
+
+The session `.md` files are the source of truth. Pointers and the index are conveniences — if they drift, rerun `/save`.
 
 ## Install
 
@@ -159,9 +175,9 @@ resume_hint: |
      (in status bar)    (in list)      to resume
 ```
 
-Lookup order for the statusline: **repo-local first** (walk up from cwd looking for `.local/current-session`), then **global fallback** (`~/.claude/current-session`). That way the active session name follows you when you `cd` into a sibling repo that doesn't have its own pointer. `sl` stays repo-local — each project sees its own session list.
+**Statusline lookup order**: repo-local first (walk up from cwd for `.local/current-session`), then global fallback (`~/.claude/current-session`). When the pointer is found via walk-up, the statusline also locates the session's `.md` file in the same `.local/sessions/` dir and prints its on-disk size — e.g. `ENG-123-oauth-login (9.7K) ctx:42%`. Pairing file size with live context usage makes both "how much context is this costing" signals scannable as one unit, right where you already glance when deciding whether to `/save` and start fresh. Global-fallback hits skip the size since the owning repo is unknown.
 
-One command, one source of truth. The statusline + `sl` list + resume path all see the same active session name — no drift.
+`sl` stays repo-local by design — each project sees its own session list. One command (`/save`), one source of truth on disk, three surfaces that agree.
 
 ## Topic drift protection
 
