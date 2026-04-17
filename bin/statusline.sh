@@ -5,7 +5,9 @@
 # That file is written by the `/save` skill, so your statusline stays in sync
 # with the session file you're actually working on.
 #
-# Falls back to Claude's built-in session name from the JSON piped in on stdin.
+# Falls back to `~/.claude/current-session` (global pointer) when no repo-local
+# pointer is found — lets the active session name follow you across sibling
+# repos. Disk-only; ignores Claude Code's /rename (chat-only).
 #
 # Usage (in ~/.claude/settings.json):
 #   "statusLine": { "type": "command", "command": "bash /path/to/bin/statusline.sh" }
@@ -25,11 +27,15 @@ find_current_session() {
     local dir="$1"
     while [ "$dir" != "/" ] && [ -n "$dir" ]; do
         if [ -f "$dir/.local/current-session" ]; then
-            cat "$dir/.local/current-session" | head -1 | tr -d '\n'
+            head -n1 "$dir/.local/current-session" | tr -d '\n'
             return 0
         fi
         dir="$(dirname "$dir")"
     done
+    if [ -f "$HOME/.claude/current-session" ]; then
+        head -n1 "$HOME/.claude/current-session" | tr -d '\n'
+        return 0
+    fi
     return 1
 }
 

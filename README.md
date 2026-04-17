@@ -14,9 +14,9 @@ Claude Code ships with `/rename` + `/resume`, but they fight you in practice:
 
 1. **`/save`** — a slash command that writes a curated markdown snapshot (status, decisions, pending, resume hint, timeline) to `.local/sessions/<name>.md`. Updates the file if it already exists. Syncs the `.local/sessions.md` index with disk every time.
 2. **`sl`** — a standalone bash/python script that lists every session file sorted by last-updated, with a substring filter. Works as a shell command with no LLM round-trip — pure CLI.
-3. **`statusline.sh`** — Claude Code status line that shows the active session name (from `.local/current-session`, written by `/save`), plus directory, git branch, and model.
+3. **`statusline.sh`** — Claude Code status line that shows the active session name (from `.local/current-session`, written by `/save`, with `~/.claude/current-session` as a cross-repo fallback), plus directory, git branch, and model.
 
-All three share the same session name via a single pointer file `.local/current-session`. Save a session and your statusline + `sl` list + chat context all line up. No fighting with Claude Code's built-in `/rename`.
+All three share the same session name via `.local/current-session` (repo-local) and `~/.claude/current-session` (global fallback). Save a session and your statusline + `sl` list + chat context all line up — even when you `cd` into a sibling repo. No fighting with Claude Code's built-in `/rename`.
 
 The session files are yours — edit them, grep them, share pieces with teammates. Disk is the source of truth.
 
@@ -145,19 +145,21 @@ resume_hint: |
              │ /save ENG-123-oauth      │ ← you run this in Claude Code
              └────────────┬─────────────┘
                           │
-            ┌─────────────┼─────────────┐
-            ▼             ▼             ▼
-  .local/sessions/    .local/       .local/sessions.md
-  ENG-123-oauth.md    current-      (index, auto-synced
-  (full snapshot)     session       with disk)
-                      (pointer)
-                          │
-            ┌─────────────┼─────────────┐
-            ▼             ▼             ▼
+       ┌──────────────────┼──────────────────┬───────────────────┐
+       ▼                  ▼                  ▼                   ▼
+  .local/sessions/    .local/          ~/.claude/         .local/sessions.md
+  ENG-123-oauth.md    current-         current-           (index, auto-synced
+  (full snapshot)     session          session            with disk)
+                      (repo-local)     (global fallback)
+                          │                  │
+            ┌─────────────┼──────────────────┘
+            ▼             ▼
      statusline.sh      sl             future Claude sessions
      ★ ENG-123-oauth    ★ ENG-123      read the snapshot
      (in status bar)    (in list)      to resume
 ```
+
+Lookup order for the statusline: **repo-local first** (walk up from cwd looking for `.local/current-session`), then **global fallback** (`~/.claude/current-session`). That way the active session name follows you when you `cd` into a sibling repo that doesn't have its own pointer. `sl` stays repo-local — each project sees its own session list.
 
 One command, one source of truth. The statusline + `sl` list + resume path all see the same active session name — no drift.
 

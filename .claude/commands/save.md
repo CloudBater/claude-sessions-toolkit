@@ -163,17 +163,19 @@ Sync workflow:
 
 Always run this full sync step during `/save`, not just when adding the current session. This prevents the index from accumulating dead links when the user deletes session files manually.
 
-### 5.5. Write Current-Session Pointer
+### 5.5. Write Current-Session Pointers (repo-local + global)
 
-Write the session name to `.local/current-session` (one line, no trailing newline is fine):
+Write the session name to two pointer files:
 
 ```bash
 echo "<session-name>" > .local/current-session
+mkdir -p "$HOME/.claude" && echo "<session-name>" > "$HOME/.claude/current-session"
 ```
 
-This pointer is read by the bundled `bin/statusline.sh` so the Claude Code status line shows the active session name. Every `/save` overwrites it — so the last-saved session is always the "current" one from the statusline's perspective.
+- **`.local/current-session`** — repo-local pointer. Read by `sl` (★ marker), and by the bundled `bin/statusline.sh` when your cwd is inside this repo's tree.
+- **`~/.claude/current-session`** — global pointer. Read by `bin/statusline.sh` as a fallback when your cwd is in a sibling repo that has no `.local/current-session` of its own. Lets the active session name follow you across repos.
 
-If the user wants to switch active session without saving (e.g. to show a different session in the statusline), they can either run `/save <name>` on the target session or edit `.local/current-session` manually.
+Every `/save` overwrites both — so the last-saved session is always "current" everywhere. If the user wants to switch active session without saving, they can edit either file manually, or run `/save <name>` on the target session.
 
 ### 6. Output
 
