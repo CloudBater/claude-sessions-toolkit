@@ -17,6 +17,59 @@ Determine the session name using this priority:
    - If no ticket but a clear feature name exists: use kebab-case feature name (e.g., `oauth-login`, `sso-auth`)
    - Last resort: use `session-YYYY-MM-DD` with today's date
 
+### 1.5. Detect Topic Drift — DO NOT overwrite unrelated sessions
+
+**Critical safety check.** If you pick an existing session file to update, verify the current work actually belongs to that session. If the topic has drifted, save as a new session instead.
+
+Drift signals (any one is enough to trigger the check):
+
+1. **Ticket change** — a different ticket ID appears in recent commits, branch name, or the conversation than the ticket recorded in the existing session file
+2. **Branch mismatch** — current git branch differs from the existing session's `branch.backend` or `branch.frontend`
+3. **Files diverge** — the files you've been touching in this conversation overlap <30% with the session's recorded `files_touched`
+4. **Scope mismatch** — the feature you've been working on (judged from recent commits, conversation topics, file paths) doesn't match the session's `scope` line
+
+When any drift signal fires, **STOP and ask the user** before writing:
+
+```
+Detected topic drift.
+
+Current saved session:
+  Name:   <existing-name>
+  Ticket: <existing-ticket>
+  Scope:  <existing-scope>
+  Files:  <existing-files-summary>
+
+What you've been working on now:
+  Ticket: <detected-ticket or "none">
+  Branch: <current-branch>
+  Scope:  <inferred-scope>
+  Files:  <current-files-summary>
+
+These look like different topics. How should I save?
+
+  (a) Save as NEW session — suggested name: <new-name>
+      Keeps <existing-name> untouched; creates a separate file.
+  (b) Update <existing-name> anyway (if this IS a continuation)
+  (c) Skip save
+```
+
+Default to **(a)**. Rationale: losing context by merging two topics into one file is much worse than having one extra session file. The user can always delete an extra file; they can't recover a clean session that got polluted by unrelated work.
+
+If the user picks (a):
+- Derive a new name using the normal rules from Section 1 but using the CURRENT work's ticket/feature
+- Create a fresh session file — do not copy anything from the existing session
+- Update `.local/current-session` to the new name
+- The previous session file stays exactly as it was
+
+If the user picks (b):
+- Proceed to Section 2 with the existing session name
+- Be extra careful when merging `done:` lists — label new entries with today's date so the drift is at least visible in the history
+
+Skip the drift check entirely when:
+- `$ARGUMENTS` is an explicit session name (user already decided)
+- No existing session file matches (nothing to drift from)
+- The existing session's `phase` is `done` (completed sessions should never be reopened; force a new session)
+
 ### 2. Gather Context
 
 Collect the following from the current conversation and repo state:

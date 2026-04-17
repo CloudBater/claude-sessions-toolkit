@@ -161,6 +161,33 @@ resume_hint: |
 
 One command, one source of truth. The statusline + `sl` list + resume path all see the same active session name — no drift.
 
+## Topic drift protection
+
+A common failure mode: you were working on session A this morning, then without thinking you start on a different task B this afternoon. If `/save` just blindly updated A's file with B's context, you'd lose a clean A snapshot and end up with a confusing A+B hybrid.
+
+`/save` detects drift by comparing:
+
+- Ticket ID (from commits, branch name, conversation)
+- Current git branch vs session's recorded branch
+- Files you've touched vs session's recorded files
+- Feature/scope inferred from conversation
+
+If drift is detected, it stops and asks:
+
+```
+Detected topic drift.
+
+Current saved session: ENG-123-oauth-login (scope: OAuth login endpoint)
+What you've been working on: ENG-145-payment-webhook (scope: Stripe webhook handler)
+
+These look like different topics. How should I save?
+  (a) Save as NEW session — suggested name: ENG-145-payment-webhook
+  (b) Update ENG-123 anyway (if this IS a continuation)
+  (c) Skip save
+```
+
+The default is (a) — save as new. Keeping a clean A is more valuable than preventing an extra file.
+
 ## Tips
 
 - **One session per topic** — don't mix work across topics in one file
@@ -168,6 +195,7 @@ One command, one source of truth. The statusline + `sl` list + resume path all s
 - **`resume_hint` is the money field** — write it like you're briefing a new teammate
 - **Timeline is append-only** — never delete history; compact old entries into weekly summaries instead
 - **Disk over memory** — the index is a convenience; the files are truth
+- **Trust the drift check** — when `/save` asks if you're starting a new topic, err on the side of "yes, new session"
 
 ## License
 
