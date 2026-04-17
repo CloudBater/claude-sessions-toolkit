@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""List saved sessions from .local/sessions/ ordered by `updated` desc.
+
+Reads YAML frontmatter only — fast, no LLM round-trip.
+Searches upward from the current directory for a `.local/sessions/` folder, so
+you can run `sl` from anywhere inside your project.
+
+Usage:
+    sl              # full list
+    sl oauth        # filter by substring (session name, phase, or status)
+    sl LT-3066      # filter by ticket prefix
+"""
+from __future__ import annotations
+
+import re
+import sys
+from datetime import date
+from pathlib import Path
+
+DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
+KV_RE = re.compile(r"^([A-Za-z_][\w-]*):\s*(.*)$")
+
+
+def find_sessions_dir() -> Path | None:
+    """Walk up from cwd looking for a .local/sessions directory."""
+    cur = Path.cwd().resolve()
+    for parent in [cur, *cur.parents]:
+        candidate = parent / ".local" / "sessions"
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def parse_frontmatter(path: Path) -> dict:
+    fm: dict = {}
+    with path.open("r", encoding="utf-8", errors="replace") as f:
+        first = f.readline()
+        if first.rstrip("\n") != "---":
+            return fm
+        for line in f:
+            s = line.rstrip("\n")
+            if s == "---":
+                break
+            if line.startswith((" ", "\t", "-")):
+                continue
+            m = KV_RE.match(s)
+            if not m:
+                continue
+            key, val = m.group(1), m.group(2).strip()
+            if val in ("|", ">", ""):
+                continue
+            fm[key] = val.strip('"').strip("'")
+    return fm
+
+
+def truncate(s: str, n: int) -> str:
+    s = (s or "").replace("\n", " ")
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def fmt_size(b: int) -> str:
+    if b < 1024:
+        return f"{b}B"
+    k = b / 1024
+    if k < 10:
+        return f"{k:.1f}K"
+    if k < 1024:
+        return f"{int(k)}K"
+    return f"{k / 1024:.1f}M"
+
+
+def main() -> int:
+    arg = " ".join(sys.argv[1:]).strip().lower()
+    sessions_dir = find_sessions_dir()
+
+    if sessions_dir is None:
+        print("No .local/sessions/ found in this project tree.")
+        print("Create it and save a session with /save, or copy files into it.")
+        return 0
+
+    rows = []
+    for p in sessions_dir.glob("*.md"):
+        st = p.stat()
+        fm = parse_frontmatter(p)
+        updated = fm.get("updated", "")
+        m = DATE_RE.match(updated)
+        upd = m.group(1) if m else date.fromtimestamp(st.st_mtime).isoformat()
+        rows.append(
+            (upd, fm.get("phase", ""), p.stem, fmt_size(st.st_size), fm.get("status", ""))
+        )
+
+    if not rows:
+        print(f"No saved sessions in {sessions_dir}.")
+        return 0
+
+    rows.sort(key=lambda r: r[0], reverse=True)
+
+    if arg:
+        rows = [
+            r for r in rows
+            if arg in r[1].lower() or arg in r[2].lower() or arg in r[4].lower()
+        ]
+        if not rows:
+            print(f'No sessions match "{arg}".')
+            return 0
+
+    phase_w = 14
+    name_w = min(max(len(r[2]) for r in rows), 32)
+    size_w = max(4, max(len(r[3]) for r in rows))
+    idx_w = max(2, len(str(len(rows))))
+
+    print(
+        f"{'#':>{idx_w}}  {'UPDATED':<10}  {'PHASE':<{phase_w}}  "
+        f"{'SESSION':<{name_w}}  {'SIZE':>{size_w}}  STATUS"
+    )
+    for i, (upd, ph, nm, sz, status) in enumerate(rows, 1):
+        print(
+            f"{i:>{idx_w}}  {upd:<10}  {truncate(ph, phase_w):<{phase_w}}  "
+            f"{truncate(nm, name_w):<{name_w}}  {sz:>{size_w}}  {truncate(status, 60)}"
+        )
+    print(f"{len(rows)} session(s) in {sessions_dir}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
