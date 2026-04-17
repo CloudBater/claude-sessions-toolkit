@@ -6,7 +6,7 @@ Small toolkit for managing Claude Code sessions on disk, not just in the chat pi
 
 Claude Code ships with `/rename` + `/resume`, but they fight you in practice:
 
-- `/rename` stores the name in-session only. Next week you remember "that OAuth thing" but not `LT-3066-oauth-direct-login` — you can't get back without the exact name, and `/resume` now requires a filter (no full list).
+- `/rename` stores the name in-session only. Next week you remember "that OAuth thing" but not the exact name — you can't get back without it, and `/resume` now requires a filter (no full list).
 - Inevitable outcome: you start a new session with a slightly different name, end up with two similar-looking duplicates, neither holds the full context.
 - Chat history is long and unstructured. You don't want to re-read a 200-message transcript to recall what you decided.
 
@@ -68,22 +68,22 @@ Shell (outside Claude Code — fast, no LLM):
 ```
 sl              # full list
 sl oauth        # filter by substring (name, phase, or status)
-sl LT-3066      # filter by ticket
+sl ENG-123      # filter by ticket
 ```
 
 Example output:
 
 ```
- #  UPDATED     PHASE           SESSION                       SIZE  STATUS
- 1  2026-04-17  implementing    LT-3089-dev-api-primary       9.4K  BE PR #1072 open vs develop (3 commits)...
- 2  2026-04-17  deploying       LT-3082-mcp-onboarding-page    16K  BE v1.14.0.2 hotfix verified on staging...
- 3  2026-04-17  awaiting-merge  LT-3066-oauth-direct-login     31K  BE PR #1071 at 7a0efcc2, 9 files / +607...
- 4  2026-04-16  sentry-cloud    LT-3079-sentry-setup           21K  Sandbox BE + FE wired to Sentry Cloud...
+ #  UPDATED     PHASE           SESSION                   SIZE  STATUS
+ 1  2026-01-20  implementing    ENG-145-payment-webhook   9.4K  Webhook signature verification done, retry logic TODO
+ 2  2026-01-19  deploying       ENG-167-migration-script   16K  Staging cutover verified, prod cutover scheduled
+ 3  2026-01-19  awaiting-merge  ENG-123-oauth-login        31K  PR open at abc1234, 9 files / +607 lines, tests green
+ 4  2026-01-18  done            cache-layer-redis          21K  Shipped, dashboards clean for 48h
 ```
 
 ### Resume a session
 
-Just tell Claude: `resume LT-3066-oauth-direct-login` or `read .local/sessions/LT-3066-oauth-direct-login.md`
+Just tell Claude: `resume ENG-123-oauth-login` or `read .local/sessions/ENG-123-oauth-login.md`
 
 Each session file has a `resume_hint` field — Claude reads it and knows exactly what to do next.
 
@@ -91,14 +91,14 @@ Each session file has a `resume_hint` field — Claude reads it and knows exactl
 
 ```markdown
 ---
-name: LT-3066-oauth-direct-login
-ticket: LT-3066
-started: 2026-03-20
-updated: 2026-04-17
+name: ENG-123-oauth-login
+ticket: ENG-123
+started: 2026-01-10
+updated: 2026-01-19
 branch:
-  backend: feature/LT-3066-oauth-direct-login
-  frontend: feature/LT-3054-sso-frontend
-scope: OAuth direct login endpoint for 3 providers
+  backend: feature/ENG-123-oauth-login
+  frontend: feature/ENG-124-oauth-frontend
+scope: OAuth login endpoint for Google / Microsoft / GitHub
 phase: awaiting-merge
 status: One-line summary of current state, surfaces in `sl` output
 done:
@@ -119,7 +119,7 @@ resume_hint: |
 
 ## Timeline
 
-### 2026-04-17
+### 2026-01-19
 
 - What was accomplished today
 - Key decisions

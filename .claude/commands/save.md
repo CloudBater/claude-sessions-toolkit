@@ -2,7 +2,7 @@ Save or update session context so future conversations can resume seamlessly.
 
 ## Input
 
-$ARGUMENTS — optional session name override (e.g., `oauth-login`, `LT-3066-oauth`). If omitted, auto-detect from context.
+$ARGUMENTS — optional session name override (e.g., `oauth-login`, `ENG-123-oauth`). If omitted, auto-detect from context.
 
 ## Behavior
 
@@ -13,7 +13,7 @@ Determine the session name using this priority:
 1. **Explicit argument** — if `$ARGUMENTS` is provided and non-empty, use it as the session name
 2. **Existing session file** — scan `.local/sessions/` for a file whose content matches the current working context (same ticket, same branch, same feature area). If found, update that file
 3. **Auto-derive from context** — build the name from available signals:
-   - If a ticket number is visible in recent commits, branch name, or conversation (e.g. `LT-3066`, `ENG-123`, `#456`): use `<ticket>-short-title` (e.g., `LT-3066-oauth-login`)
+   - If a ticket number is visible in recent commits, branch name, or conversation (e.g. `ENG-123`, `PROJ-45`, `#456`): use `<ticket>-short-title` (e.g., `ENG-123-oauth-login`)
    - If no ticket but a clear feature name exists: use kebab-case feature name (e.g., `oauth-login`, `sso-auth`)
    - Last resort: use `session-YYYY-MM-DD` with today's date
 
@@ -123,7 +123,7 @@ Next: <resume_hint summary>
 ## Rules
 
 - Always use kebab-case for filenames
-- Ticket numbers go first in the name: `LT-3066-oauth-login` not `oauth-login-LT-3066`
+- Ticket numbers go first in the name: `ENG-123-oauth-login` not `oauth-login-ENG-123`
 - Don't save secrets, credentials, or tokens
 - Don't duplicate what's already in spec/design files — reference them instead (e.g., "see docs/oauth-design.md")
 - Keep `resume_hint` actionable — it should tell the next session exactly what command to run or what file to open

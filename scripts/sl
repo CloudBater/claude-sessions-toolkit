@@ -8,7 +8,7 @@ you can run `sl` from anywhere inside your project.
 Usage:
     sl              # full list
     sl oauth        # filter by substring (session name, phase, or status)
-    sl LT-3066      # filter by ticket prefix
+    sl ENG-123      # filter by ticket prefix
 """
 from __future__ import annotations
 
