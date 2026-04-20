@@ -1,13 +1,22 @@
 #!/usr/bin/env bash
 # Claude Code status line — shows the current saved session name.
 #
-# Reads `.local/current-session` from the working directory tree (walked upward).
-# That file is written by the `/save` skill, so your statusline stays in sync
-# with the session file you're actually working on.
+# Two jobs:
+#   1. Resolve + render the active session name (and its file size) alongside
+#      cwd, branch, model, and ctx%.
+#   2. Write a per-Claude-instance heartbeat to ~/.claude/runtime/ so that the
+#      /save and /use slash commands can discover their own session_id (which
+#      Claude Code does not expose as an env var).
 #
-# Falls back to `~/.claude/current-session` (global pointer) when no repo-local
-# pointer is found — lets the active session name follow you across sibling
-# repos. Disk-only; ignores Claude Code's /rename (chat-only).
+# Resolution priority for the current session name (first match wins):
+#   1. <repo>/.local/current-session-<session_id>   (keyed, repo-local)
+#   2. <repo>/.local/current-session                (unkeyed, repo-local; sl ★)
+#   3. ~/.claude/current-session-<session_id>       (keyed, global)
+#   4. ~/.claude/current-session                    (unkeyed, global fallback)
+#
+# Keyed pointers are what let two terminals in the same repo track different
+# sessions. The unkeyed pointers remain as a shared "most-recent" fallback and
+# as the source sl uses to mark the current session.
 #
 # Usage (in ~/.claude/settings.json):
 #   "statusLine": { "type": "command", "command": "bash /path/to/bin/statusline.sh" }
@@ -23,23 +32,53 @@ jq_get() {
     printf '%s' "$INPUT" | jq -r "$1 // empty" 2>/dev/null
 }
 
+SESSION_ID="$(jq_get '.session_id')"
 SESSION_NAME=""
 SESSION_FILE=""
+
+# Heartbeat: record (session_id → cwd) so /save and /use can find us.
+write_heartbeat() {
+    local cwd="$1"
+    [ -z "$SESSION_ID" ] && return 0
+    [ -z "$cwd" ] && return 0
+    local dir="$HOME/.claude/runtime"
+    mkdir -p "$dir" 2>/dev/null || return 0
+    printf '{"cwd":"%s","ts":%s}\n' "$cwd" "$(date +%s)" \
+        > "$dir/instance-$SESSION_ID.json" 2>/dev/null || true
+}
 
 find_current_session() {
     # Populates SESSION_NAME and SESSION_FILE.
     local dir="$1"
+    local repo=""
     while [ "$dir" != "/" ] && [ -n "$dir" ]; do
-        if [ -f "$dir/.local/current-session" ]; then
-            SESSION_NAME="$(head -n1 "$dir/.local/current-session" | tr -d '\n\r')"
-            SESSION_FILE="$dir/.local/sessions/$SESSION_NAME.md"
-            return 0
+        if [ -d "$dir/.local/sessions" ] || [ -f "$dir/.local/current-session" ]; then
+            repo="$dir"
+            break
         fi
         dir="$(dirname "$dir")"
     done
+
+    if [ -n "$repo" ]; then
+        if [ -n "$SESSION_ID" ] && [ -f "$repo/.local/current-session-$SESSION_ID" ]; then
+            SESSION_NAME="$(head -n1 "$repo/.local/current-session-$SESSION_ID" | tr -d '\n\r')"
+            SESSION_FILE="$repo/.local/sessions/$SESSION_NAME.md"
+            return 0
+        fi
+        if [ -f "$repo/.local/current-session" ]; then
+            SESSION_NAME="$(head -n1 "$repo/.local/current-session" | tr -d '\n\r')"
+            SESSION_FILE="$repo/.local/sessions/$SESSION_NAME.md"
+            return 0
+        fi
+    fi
+
+    if [ -n "$SESSION_ID" ] && [ -f "$HOME/.claude/current-session-$SESSION_ID" ]; then
+        SESSION_NAME="$(head -n1 "$HOME/.claude/current-session-$SESSION_ID" | tr -d '\n\r')"
+        SESSION_FILE=""
+        return 0
+    fi
     if [ -f "$HOME/.claude/current-session" ]; then
         SESSION_NAME="$(head -n1 "$HOME/.claude/current-session" | tr -d '\n\r')"
-        # Global fallback: we don't know where the .md lives, so no size.
         SESSION_FILE=""
         return 0
     fi
@@ -62,13 +101,14 @@ CWD="$(jq_get '.cwd')"
 
 DIR_DISPLAY="${CWD/#$HOME/~}"
 
+write_heartbeat "$CWD"
+
 BRANCH=""
 if GIT_OPTIONAL_LOCKS=0 git -C "$CWD" rev-parse --is-inside-work-tree &>/dev/null; then
     BRANCH="$(GIT_OPTIONAL_LOCKS=0 git -C "$CWD" symbolic-ref --short HEAD 2>/dev/null || echo 'detached')"
 fi
 
 find_current_session "$CWD" >/dev/null 2>&1 || true
-# Disk-only — ignore Claude Code's /rename value (chat-only, doesn't survive)
 
 SESSION_SIZE=""
 if [ -n "$SESSION_FILE" ] && [ -f "$SESSION_FILE" ]; then

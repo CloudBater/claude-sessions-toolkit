@@ -5,6 +5,12 @@ Reads YAML frontmatter only — fast, no LLM round-trip.
 Searches upward from the current directory for a `.local/sessions/` folder, so
 you can run `sl` from anywhere inside your project.
 
+The leftmost column (#) is a stable 1-based row index matching the sort order —
+pass it to `/use <N>` to switch active session without retyping the full name.
+
+★ marks any session that at least one Claude Code terminal currently points at
+(union of .local/current-session and .local/current-session-<session_id>).
+
 Usage:
     sl              # full list
     sl oauth        # filter by substring (session name, phase, or status)
@@ -31,12 +37,25 @@ def find_sessions_dir() -> Path | None:
     return None
 
 
-def read_current_session(sessions_dir: Path) -> str:
-    """Read the current session name from .local/current-session, if any."""
-    pointer = sessions_dir.parent / "current-session"
-    if pointer.is_file():
-        return pointer.read_text(encoding="utf-8", errors="replace").strip().splitlines()[0] if pointer.read_text().strip() else ""
-    return ""
+def read_current_sessions(sessions_dir: Path) -> set[str]:
+    """Read every .local/current-session* file and return the set of active names.
+
+    Includes the unkeyed pointer (.local/current-session) and every per-Claude-
+    instance keyed pointer (.local/current-session-<session_id>). A session is
+    "current" if any terminal points at it — ★ marks them all.
+    """
+    active: set[str] = set()
+    parent = sessions_dir.parent
+    for p in parent.glob("current-session*"):
+        if not p.is_file():
+            continue
+        try:
+            first = p.read_text(encoding="utf-8", errors="replace").strip().splitlines()
+            if first:
+                active.add(first[0].strip())
+        except OSError:
+            continue
+    return active
 
 
 def parse_frontmatter(path: Path) -> dict:
@@ -112,7 +131,7 @@ def main() -> int:
             print(f'No sessions match "{arg}".')
             return 0
 
-    current = read_current_session(sessions_dir)
+    active = read_current_sessions(sessions_dir)
 
     phase_w = 14
     name_w = min(max(len(r[2]) for r in rows), 32) + 2  # +2 for star marker
@@ -124,12 +143,15 @@ def main() -> int:
         f"{'SESSION':<{name_w}}  {'SIZE':>{size_w}}  STATUS"
     )
     for i, (upd, ph, nm, sz, status) in enumerate(rows, 1):
-        marker = "★ " if nm == current else "  "
+        marker = "★ " if nm in active else "  "
         print(
             f"{i:>{idx_w}}  {upd:<10}  {truncate(ph, phase_w):<{phase_w}}  "
             f"{marker}{truncate(nm, name_w - 2):<{name_w - 2}}  {sz:>{size_w}}  {truncate(status, 60)}"
         )
-    suffix = f" (★ current: {current})" if current else ""
+    if active:
+        suffix = f" (★ current: {', '.join(sorted(active))})"
+    else:
+        suffix = ""
     print(f"{len(rows)} session(s) in {sessions_dir}{suffix}")
     return 0
 

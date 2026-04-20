@@ -163,19 +163,49 @@ Sync workflow:
 
 Always run this full sync step during `/save`, not just when adding the current session. This prevents the index from accumulating dead links when the user deletes session files manually.
 
-### 5.5. Write Current-Session Pointers (repo-local + global)
+### 5.5. Write Current-Session Pointers (repo-local + global, session_id-keyed + unkeyed)
 
-Write the session name to two pointer files:
+Write the session name to up to four pointer files. Two unkeyed (shared, backward-compatible) and two session_id-keyed (per-terminal).
+
+**Step 1 — discover this terminal's `session_id`.** Claude Code does not expose it as an env var, but the bundled statusline writes a heartbeat to `~/.claude/runtime/instance-<session_id>.json` on every render:
 
 ```bash
-echo "<session-name>" > .local/current-session
-mkdir -p "$HOME/.claude" && echo "<session-name>" > "$HOME/.claude/current-session"
+session_id=""
+if compgen -G "$HOME/.claude/runtime/instance-*.json" >/dev/null 2>&1; then
+    session_id="$(ls -t "$HOME/.claude/runtime/"instance-*.json 2>/dev/null | while read -r f; do
+        cwd="$(jq -r '.cwd // empty' "$f" 2>/dev/null)"
+        if [ "$cwd" = "$(pwd)" ]; then
+            basename "$f" .json | sed 's/^instance-//'
+            break
+        fi
+    done)"
+fi
 ```
 
-- **`.local/current-session`** — repo-local pointer. Read by `sl` (★ marker), and by the bundled `bin/statusline.sh` when your cwd is inside this repo's tree.
-- **`~/.claude/current-session`** — global pointer. Read by `bin/statusline.sh` as a fallback when your cwd is in a sibling repo that has no `.local/current-session` of its own. Lets the active session name follow you across repos.
+The most-recently-modified heartbeat whose `cwd` matches ours is this terminal. If no match is found (statusline never rendered, or cwd differs), `session_id` stays empty — write only the unkeyed pointers.
 
-Every `/save` overwrites both — so the last-saved session is always "current" everywhere. If the user wants to switch active session without saving, they can edit either file manually, or run `/save <name>` on the target session.
+**Step 2 — write the pointers:**
+
+```bash
+# Unkeyed (always): shared across terminals; sl reads .local/current-session for ★
+echo "<session-name>" > .local/current-session
+mkdir -p "$HOME/.claude" && echo "<session-name>" > "$HOME/.claude/current-session"
+
+# Keyed (when session_id is known): per-terminal, no cross-terminal collision
+if [ -n "$session_id" ]; then
+    echo "<session-name>" > ".local/current-session-$session_id"
+    echo "<session-name>" > "$HOME/.claude/current-session-$session_id"
+fi
+```
+
+Which file does which job:
+
+- **`.local/current-session`** — repo-local unkeyed pointer. Read by `sl` (★ marker) and by the bundled statusline as a fallback when there's no keyed match.
+- **`.local/current-session-<session_id>`** — repo-local keyed pointer. Read first by the statusline. Lets two terminals in the **same** repo point at different sessions.
+- **`~/.claude/current-session`** — global unkeyed pointer. Read by the statusline as a last-resort fallback when cwd is in a sibling repo that has no `.local/current-session` of its own.
+- **`~/.claude/current-session-<session_id>`** — global keyed pointer. Per-terminal fallback for cross-repo work.
+
+Every `/save` overwrites the applicable pointers. If the user wants to switch active session without saving, they should run `/use <name|N>` instead.
 
 ### 6. Output
 
