@@ -136,9 +136,9 @@ OUT="${BOLD}${CYAN}${DIR_DISPLAY}${RESET}"
 
 if [ -n "$SESSION_NAME" ]; then
     if [ -n "$SESSION_SIZE" ]; then
-        OUT="${OUT} ${DIM}${SESSION_NAME} (${SESSION_SIZE})${RESET}"
+        OUT="${OUT} ${SESSION_NAME} (${SESSION_SIZE})"
     else
-        OUT="${OUT} ${DIM}${SESSION_NAME}${RESET}"
+        OUT="${OUT} ${SESSION_NAME}"
     fi
 fi
 
