@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""Switch the active session pointer (bash counterpart of the /read slash command).
+
+Writes the current-session pointer files so the statusline and `sl`'s ★ marker
+reflect the chosen session. Does NOT touch the session .md file — this is
+disk-only pointer plumbing, no LLM round-trip.
+
+Usage:
+    sr <name>     # switch to session by name
+    sr <N>        # switch to row N from `sl` (1-based, same sort order)
+    sr            # print usage + current active session (no write)
+
+Resolves the session_id of the invoking Claude Code terminal via the statusline
+heartbeat at ~/.claude/runtime/instance-<session_id>.json, so two terminals in
+the same repo can track different sessions without stomping on each other's
+pointer. If no heartbeat matches the current cwd (e.g. invoked from a plain
+shell outside Claude), the unkeyed pointers are written and that's it.
+"""
+from __future__ import annotations
+
+import json
+import re
+import sys
+from datetime import date
+from pathlib import Path
+
+DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
+KV_RE = re.compile(r"^([A-Za-z_][\w-]*):\s*(.*)$")
+
+
+def find_repo() -> Path | None:
+    """Walk up from cwd looking for a .local/sessions directory."""
+    cur = Path.cwd().resolve()
+    for parent in [cur, *cur.parents]:
+        if (parent / ".local" / "sessions").is_dir():
+            return parent
+    return None
+
+
+def parse_frontmatter(path: Path) -> dict:
+    fm: dict = {}
+    with path.open("r", encoding="utf-8", errors="replace") as f:
+        first = f.readline()
+        if first.rstrip("\n") != "---":
+            return fm
+        for line in f:
+            s = line.rstrip("\n")
+            if s == "---":
+                break
+            if line.startswith((" ", "\t", "-")):
+                continue
+            m = KV_RE.match(s)
+            if not m:
+                continue
+            key, val = m.group(1), m.group(2).strip()
+            if val in ("|", ">", ""):
+                continue
+            fm[key] = val.strip('"').strip("'")
+    return fm
+
+
+def list_sessions_ordered(sessions_dir: Path) -> list[str]:
+    """Return session names in the same order `sl` prints them (updated desc)."""
+    rows = []
+    for p in sessions_dir.glob("*.md"):
+        fm = parse_frontmatter(p)
+        updated = fm.get("updated", "")
+        m = DATE_RE.match(updated)
+        upd = m.group(1) if m else date.fromtimestamp(p.stat().st_mtime).isoformat()
+        rows.append((upd, p.stem))
+    rows.sort(key=lambda r: r[0], reverse=True)
+    return [name for _, name in rows]
+
+
+def discover_session_id(cwd: str) -> str:
+    """Find this terminal's Claude session_id via the statusline heartbeat.
+
+    Most-recently-written heartbeat whose cwd matches ours wins. Returns an
+    empty string when no match is found (e.g. run from a plain shell).
+    """
+    rt = Path.home() / ".claude" / "runtime"
+    if not rt.is_dir():
+        return ""
+    best_ts = -1
+    best_id = ""
+    for hb in rt.glob("instance-*.json"):
+        try:
+            data = json.loads(hb.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if data.get("cwd") != cwd:
+            continue
+        ts = int(data.get("ts", 0))
+        if ts > best_ts:
+            best_ts = ts
+            best_id = hb.stem[len("instance-"):]
+    return best_id
+
+
+def write_pointers(repo: Path, name: str, session_id: str) -> None:
+    home_claude = Path.home() / ".claude"
+    home_claude.mkdir(parents=True, exist_ok=True)
+
+    (repo / ".local" / "current-session").write_text(name + "\n", encoding="utf-8")
+    (home_claude / "current-session").write_text(name + "\n", encoding="utf-8")
+    if session_id:
+        (repo / ".local" / f"current-session-{session_id}").write_text(name + "\n", encoding="utf-8")
+        (home_claude / f"current-session-{session_id}").write_text(name + "\n", encoding="utf-8")
+
+
+def resolve_arg(arg: str, ordered: list[str]) -> str | None:
+    if arg.isdigit():
+        idx = int(arg)
+        if idx < 1 or idx > len(ordered):
+            print(
+                f"Row {idx} out of range (1..{len(ordered)}). Run `sl` to see the list.",
+                file=sys.stderr,
+            )
+            return None
+        return ordered[idx - 1]
+
+    if arg in ordered:
+        return arg
+
+    subs = [n for n in ordered if arg.lower() in n.lower()]
+    if len(subs) == 1:
+        return subs[0]
+    if not subs:
+        print(f'No session matches "{arg}".', file=sys.stderr)
+        return None
+    print(f'"{arg}" matches {len(subs)} sessions:', file=sys.stderr)
+    for s in subs[:5]:
+        print(f"  {s}", file=sys.stderr)
+    print("Be more specific or pass the row number from `sl`.", file=sys.stderr)
+    return None
+
+
+def main() -> int:
+    arg = " ".join(sys.argv[1:]).strip()
+    repo = find_repo()
+    if repo is None:
+        print("No .local/sessions/ found in this project tree.", file=sys.stderr)
+        return 1
+
+    sessions_dir = repo / ".local" / "sessions"
+    ordered = list_sessions_ordered(sessions_dir)
+    if not ordered:
+        print(f"No saved sessions in {sessions_dir}.", file=sys.stderr)
+        return 1
+
+    if not arg:
+        pointer = repo / ".local" / "current-session"
+        current = ""
+        if pointer.is_file():
+            txt = pointer.read_text(encoding="utf-8", errors="replace").strip().splitlines()
+            current = txt[0] if txt else ""
+        print(f"Usage: {Path(sys.argv[0]).name} <name|N>")
+        print(f"Current: {current or '(none)'}")
+        return 0
+
+    name = resolve_arg(arg, ordered)
+    if name is None:
+        return 1
+
+    cwd = str(Path.cwd().resolve())
+    session_id = discover_session_id(cwd)
+    write_pointers(repo, name, session_id)
+
+    print(f"Active session → {name}")
+    if session_id:
+        print(f"  session_id: {session_id}")
+    else:
+        print("  (no Claude heartbeat matched cwd — wrote unkeyed pointers only)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

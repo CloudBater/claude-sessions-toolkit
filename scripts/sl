@@ -6,7 +6,8 @@ Searches upward from the current directory for a `.local/sessions/` folder, so
 you can run `sl` from anywhere inside your project.
 
 The leftmost column (#) is a stable 1-based row index matching the sort order —
-pass it to `/read <N>` to switch active session without retyping the full name.
+pass it to `sr <N>` (bash) or `/read <N>` (in Claude Code) to switch active
+session without retyping the full name.
 
 ★ marks any session that at least one Claude Code terminal currently points at
 (union of .local/current-session and .local/current-session-<session_id>).

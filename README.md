@@ -27,9 +27,11 @@ Four pieces that share state through pointer files. They can't drift apart — t
 
 2. **`/read <name|N>`** — Claude Code slash command. *Just* flips the active-session pointer; creates nothing, mutates no session file. Accepts either a name (`/read oauth-login`) or the row number printed by `sl` (`/read 3`). Use it when you've resumed a session in a new terminal and the statusline hasn't caught up, or when you want to switch focus mid-chat without forcing a save.
 
-3. **`sl`** — standalone Python CLI. Lists every session sorted by `updated` with phase, size, `status` one-liner, and `★` on any currently-active session. Walks up from cwd, so a single install works from any project subdirectory. The leftmost column is the stable index that `/read N` consumes.
+3. **`sl`** — standalone Python CLI for listing sessions. Sorted by `updated` with phase, size, `status` one-liner, and `★` on any currently-active session. Walks up from cwd, so a single install works from any project subdirectory. The leftmost column is the stable index consumed by both `sr N` (bash) and `/read N` (slash).
 
-4. **`statusline.sh`** — Claude Code status line (bash). Renders `cwd · branch · model · session-name (size) · ctx:N%`. Session file size sits immediately before live context usage so you read both as one "how much are we carrying" signal. Disk-only lookup (ignores `/rename`). Also writes a per-instance heartbeat (`~/.claude/runtime/instance-<session_id>.json`) so `/save` and `/read` can figure out which Claude terminal they're running in.
+4. **`sr`** — standalone Python CLI, bash counterpart of `/read`. Writes the pointer files (all four, session_id-keyed when invoked from inside Claude Code). Accepts `sr <name>`, `sr <N>` from `sl`'s order, or `sr <substring>` (single-match only). No args prints the current pointer.
+
+5. **`statusline.sh`** — Claude Code status line (bash). Renders `cwd · branch · model · session-name (size) · ctx:N%`. Session file size sits immediately before live context usage so you read both as one "how much are we carrying" signal. Disk-only lookup (ignores `/rename`). Also writes a per-instance heartbeat (`~/.claude/runtime/instance-<session_id>.json`) so `/save`, `/read`, and `sr` can figure out which Claude terminal they're running in.
 
 **Pointer files.** Two terminals in the same repo working on different sessions would collide on a single pointer — so pointers are keyed by Claude's `session_id` when available, with unkeyed versions as a shared fallback:
 
@@ -38,7 +40,7 @@ Four pieces that share state through pointer files. They can't drift apart — t
 - `~/.claude/current-session-<session_id>` — global, per-terminal. For cross-repo work.
 - `~/.claude/current-session` — global, shared. Last-resort fallback when cwd is in a repo with no `.local/` of its own.
 
-Every `/save` and `/read` writes all applicable pointers. The session `.md` files are the source of truth; pointers and the index are conveniences — if they drift, rerun `/save` or `/read`.
+Every `/save`, `/read`, and `sr` writes all applicable pointers. The session `.md` files are the source of truth; pointers and the index are conveniences — if they drift, rerun `/save` or `/read`/`sr`.
 
 ## Install
 
@@ -49,16 +51,16 @@ Clone alongside your project, or copy the files in:
 cp .claude/commands/save.md /path/to/your/project/.claude/commands/
 cp .claude/commands/read.md /path/to/your/project/.claude/commands/
 
-# 2. Install the sl script (pick one)
+# 2. Install the sl + sr scripts (pick one)
 # Option A: per-project
-cp scripts/sl /path/to/your/project/scripts/
-chmod +x /path/to/your/project/scripts/sl
-# Run as: !scripts/sl  (prefix with ! in Claude Code to bypass LLM)
+cp scripts/sl scripts/sr /path/to/your/project/scripts/
+chmod +x /path/to/your/project/scripts/{sl,sr}
+# Run as: !scripts/sl, !scripts/sr  (prefix with ! in Claude Code to bypass LLM)
 
 # Option B: global
-cp scripts/sl ~/bin/sl  # or /usr/local/bin/sl
-chmod +x ~/bin/sl
-# Run from anywhere: sl
+cp scripts/sl scripts/sr ~/bin/  # or /usr/local/bin/
+chmod +x ~/bin/sl ~/bin/sr
+# Run from anywhere: sl, sr
 
 # 3. Install the statusline (optional)
 cp bin/statusline.sh ~/.claude/statusline.sh
@@ -121,11 +123,16 @@ Tell Claude: `resume ENG-123-oauth-login` or `read .local/sessions/ENG-123-oauth
 Then flip the pointer so the statusline catches up:
 
 ```
-/read ENG-123-oauth-login   # by name
-/read 3                     # by row number from `sl` (faster)
+# From inside Claude Code (slash command)
+/read ENG-123-oauth-login
+/read 3                     # row number from `sl` (faster)
+
+# From the shell (bash CLI)
+sr ENG-123-oauth-login
+sr 3
 ```
 
-`/read` is the pointer-only counterpart to `/save` — it writes the active-session pointer files but doesn't touch the session `.md`. Handy when you resume in one terminal while another terminal is still on a different session.
+`/read` and `sr` are the pointer-only counterparts to `/save` — they write the active-session pointer files without touching the session `.md`. Handy when you resume in one terminal while another terminal is still on a different session. The bash `sr` is disk-only (no LLM round-trip) and is what you'd wire into shell aliases or scripts; the slash `/read` is what you use mid-conversation without switching surfaces.
 
 ## Session file format
 
@@ -169,7 +176,8 @@ resume_hint: |
 ## How the pieces fit
 
 ```
-   /save ENG-123-oauth            /read 3 (or /read ENG-123-oauth)
+   /save ENG-123-oauth            /read 3   (slash, in chat)
+                                   sr 3      (bash, in terminal)
        │                                    │
        │   writes snapshot +                │   writes pointers only
        │   index + pointers                 │
@@ -183,7 +191,7 @@ resume_hint: |
    future Claude sessions read the snapshot to resume
 
   statusline.sh also writes ~/.claude/runtime/instance-<sid>.json every render
-  — that's how /save and /read discover which terminal they're in.
+  — that's how /save, /read, and sr discover which terminal they're in.
 ```
 
 **Statusline lookup order** (first hit wins):
