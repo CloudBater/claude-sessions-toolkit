@@ -1,4 +1,4 @@
-Switch the active session pointer to an existing session — without saving content.
+Load an existing session into context and switch the active session pointer to it — without overwriting the session file.
 
 ## Input
 
@@ -6,9 +6,9 @@ $ARGUMENTS — either a session name (`oauth-login`, `ENG-123-oauth-login`) or t
 
 ## Purpose
 
-`/save` is the write path: it updates the session file **and** the pointer. `/read` is just the pointer. It's what you run when you want the statusline (and `sl`'s ★ marker) to flip to a different session without creating or mutating any session file.
+`/save` is the write path: it updates the session file **and** the pointer. `/read` is the load path: it reads the session file's content into the current conversation's context **and** flips the pointer so the statusline (and `sl`'s ★ marker) reflect the active session.
 
-Primary scenario: you just resumed an older session in this terminal. Nothing is being saved yet, but the statusline should already reflect the switch so you don't lose track of which conversation is working on which session.
+Primary scenario: you're resuming an older session in this terminal. After `/read`, the prior session's notes are in context and the statusline labels are accurate — without mutating the session file on disk.
 
 ## Behavior
 
@@ -62,12 +62,16 @@ Writes:
 - `.local/current-session` + `~/.claude/current-session` — unkeyed pointers. `sl` uses the repo-local one for its ★ marker. Kept for backward compat and as a "most recent across terminals" signal.
 - `.local/current-session-<session_id>` + `~/.claude/current-session-<session_id>` — keyed pointers. These are what let two terminals in the same repo track different sessions without fighting.
 
-### 4. Output
+### 4. Load the session file into context
+
+Use the `Read` tool against `<repo>/.local/sessions/<name>.md`. This is the whole point of `/read` — the pointer alone doesn't put anything in your context. Skip this step only if the file is empty (size 0).
+
+### 5. Output
 
 Print one short confirmation:
 
 ```
-Active session → <name>
+Active session → <name> (loaded into context)
   repo-local: <repo>/.local/current-session[-<id>]
   global:     ~/.claude/current-session[-<id>]
 ```
@@ -84,5 +88,6 @@ If session_id was not resolvable, add a note:
 
 - Never create a new session file. `/read` is read-only against `.local/sessions/`.
 - Never overwrite `.local/sessions/<name>.md`. If you need to save work, use `/save` instead.
+- Always `Read` the resolved session file in step 4 — pointer-only is the old broken behavior.
 - Accept the row number as printed by `sl` (1-based, in the exact same sort order).
 - Never mix numeric and name in the same invocation. Pure digits → number. Anything else → name.
