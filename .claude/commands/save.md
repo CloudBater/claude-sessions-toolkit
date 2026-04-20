@@ -205,7 +205,7 @@ Which file does which job:
 - **`~/.claude/current-session`** — global unkeyed pointer. Read by the statusline as a last-resort fallback when cwd is in a sibling repo that has no `.local/current-session` of its own.
 - **`~/.claude/current-session-<session_id>`** — global keyed pointer. Per-terminal fallback for cross-repo work.
 
-Every `/save` overwrites the applicable pointers. If the user wants to switch active session without saving, they should run `/use <name|N>` instead.
+Every `/save` overwrites the applicable pointers. If the user wants to switch active session without saving, they should run `/read <name|N>` instead.
 
 ### 6. Output
 

@@ -6,7 +6,7 @@ $ARGUMENTS — either a session name (`oauth-login`, `ENG-123-oauth-login`) or t
 
 ## Purpose
 
-`/save` is the write path: it updates the session file **and** the pointer. `/use` is just the pointer. It's what you run when you want the statusline (and `sl`'s ★ marker) to flip to a different session without creating or mutating any session file.
+`/save` is the write path: it updates the session file **and** the pointer. `/read` is just the pointer. It's what you run when you want the statusline (and `sl`'s ★ marker) to flip to a different session without creating or mutating any session file.
 
 Primary scenario: you just resumed an older session in this terminal. Nothing is being saved yet, but the statusline should already reflect the switch so you don't lose track of which conversation is working on which session.
 
@@ -21,7 +21,7 @@ Then resolve `$ARGUMENTS`:
 - **Numeric** (pure digits, e.g. `3`): treat as a 1-based row index into the `sl` listing. Produce the same sort order `sl` uses — parse each `.md` file's YAML frontmatter `updated:` field, falling back to the file's mtime, and sort descending. Pick row N. If N is out of range, print the valid range and stop.
 - **Non-numeric**: treat as a session name. Verify `.local/sessions/<arg>.md` exists. If not, list the 3 closest matches (substring) and stop.
 
-Use kebab-case throughout. Never invent a session — `/use` only points at what already exists on disk.
+Use kebab-case throughout. Never invent a session — `/read` only points at what already exists on disk.
 
 ### 2. Discover this terminal's session_id
 
@@ -76,13 +76,13 @@ If session_id was not resolvable, add a note:
 
 ```
 (session_id unknown — wrote unkeyed pointers only. Your statusline should
- still update; run it once to generate a heartbeat, then rerun /use for
+ still update; run it once to generate a heartbeat, then rerun /read for
  per-terminal pointer tracking.)
 ```
 
 ## Rules
 
-- Never create a new session file. `/use` is read-only against `.local/sessions/`.
+- Never create a new session file. `/read` is read-only against `.local/sessions/`.
 - Never overwrite `.local/sessions/<name>.md`. If you need to save work, use `/save` instead.
 - Accept the row number as printed by `sl` (1-based, in the exact same sort order).
 - Never mix numeric and name in the same invocation. Pure digits → number. Anything else → name.

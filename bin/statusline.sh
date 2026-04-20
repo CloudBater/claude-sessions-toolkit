@@ -5,7 +5,7 @@
 #   1. Resolve + render the active session name (and its file size) alongside
 #      cwd, branch, model, and ctx%.
 #   2. Write a per-Claude-instance heartbeat to ~/.claude/runtime/ so that the
-#      /save and /use slash commands can discover their own session_id (which
+#      /save and /read slash commands can discover their own session_id (which
 #      Claude Code does not expose as an env var).
 #
 # Resolution priority for the current session name (first match wins):
@@ -36,7 +36,7 @@ SESSION_ID="$(jq_get '.session_id')"
 SESSION_NAME=""
 SESSION_FILE=""
 
-# Heartbeat: record (session_id → cwd) so /save and /use can find us.
+# Heartbeat: record (session_id → cwd) so /save and /read can find us.
 write_heartbeat() {
     local cwd="$1"
     [ -z "$SESSION_ID" ] && return 0

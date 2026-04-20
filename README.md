@@ -14,22 +14,22 @@ A unit of work has a lifecycle: **create → persist → track → switch → re
 | **Persist** across chats | Name lives in-chat; dies with the conversation. | `.local/sessions/<name>.md` on disk. Survives restarts, rebuilds, branch switches, new machines. |
 | **Discover** past work | `/resume` needs a filter string you still remember; no list, no sort. | `sl` CLI: sorted by `updated`, ★ marks current, filter by name / phase / ticket. No LLM round-trip. |
 | **See** current load | Tab title of the chat that set it. | Statusline: `session-name (size)` rendered next to `ctx:N%` — both context-weight signals in one readout. |
-| **Switch** topics mid-chat | Silent overwrite of the old session's implicit context. | Drift detection on `/save`; `/use <name\|N>` to flip the pointer without saving. |
+| **Switch** topics mid-chat | Silent overwrite of the old session's implicit context. | Drift detection on `/save`; `/read <name\|N>` to flip the pointer without saving. |
 | **Follow** across repos / terminals | Bound to one chat in one cwd. | Global pointer fallback; session_id-keyed pointers so two terminals in the same repo don't fight over one pointer. |
 | **Resume** cold | Re-read 200 messages. | `resume_hint` is a 2–3 sentence briefing; structured fields brief the next Claude without re-reading chat. |
 | **Retire** cleanly | No concept — you just stop using the chat. | `phase: done` locks the session; `/save` forces a new file instead of reopening it. |
 
 ## What this gives you
 
-Four pieces that share state through pointer files. They can't drift apart — the statusline, `sl` list, `/save`, and `/use` all read/write the same disk state.
+Four pieces that share state through pointer files. They can't drift apart — the statusline, `sl` list, `/save`, and `/read` all read/write the same disk state.
 
 1. **`/save`** — Claude Code slash command. Writes or updates `.local/sessions/<name>.md` with frontmatter + appended timeline entry. Detects topic drift. Offers compaction at 40 KB. Refuses to reopen sessions marked `phase: done`. Syncs the `.local/sessions.md` index on every save. Writes the pointer files.
 
-2. **`/use <name|N>`** — Claude Code slash command. *Just* flips the active-session pointer; creates nothing, mutates no session file. Accepts either a name (`/use oauth-login`) or the row number printed by `sl` (`/use 3`). Use it when you've resumed a session in a new terminal and the statusline hasn't caught up, or when you want to switch focus mid-chat without forcing a save.
+2. **`/read <name|N>`** — Claude Code slash command. *Just* flips the active-session pointer; creates nothing, mutates no session file. Accepts either a name (`/read oauth-login`) or the row number printed by `sl` (`/read 3`). Use it when you've resumed a session in a new terminal and the statusline hasn't caught up, or when you want to switch focus mid-chat without forcing a save.
 
-3. **`sl`** — standalone Python CLI. Lists every session sorted by `updated` with phase, size, `status` one-liner, and `★` on any currently-active session. Walks up from cwd, so a single install works from any project subdirectory. The leftmost column is the stable index that `/use N` consumes.
+3. **`sl`** — standalone Python CLI. Lists every session sorted by `updated` with phase, size, `status` one-liner, and `★` on any currently-active session. Walks up from cwd, so a single install works from any project subdirectory. The leftmost column is the stable index that `/read N` consumes.
 
-4. **`statusline.sh`** — Claude Code status line (bash). Renders `cwd · branch · model · session-name (size) · ctx:N%`. Session file size sits immediately before live context usage so you read both as one "how much are we carrying" signal. Disk-only lookup (ignores `/rename`). Also writes a per-instance heartbeat (`~/.claude/runtime/instance-<session_id>.json`) so `/save` and `/use` can figure out which Claude terminal they're running in.
+4. **`statusline.sh`** — Claude Code status line (bash). Renders `cwd · branch · model · session-name (size) · ctx:N%`. Session file size sits immediately before live context usage so you read both as one "how much are we carrying" signal. Disk-only lookup (ignores `/rename`). Also writes a per-instance heartbeat (`~/.claude/runtime/instance-<session_id>.json`) so `/save` and `/read` can figure out which Claude terminal they're running in.
 
 **Pointer files.** Two terminals in the same repo working on different sessions would collide on a single pointer — so pointers are keyed by Claude's `session_id` when available, with unkeyed versions as a shared fallback:
 
@@ -38,7 +38,7 @@ Four pieces that share state through pointer files. They can't drift apart — t
 - `~/.claude/current-session-<session_id>` — global, per-terminal. For cross-repo work.
 - `~/.claude/current-session` — global, shared. Last-resort fallback when cwd is in a repo with no `.local/` of its own.
 
-Every `/save` and `/use` writes all applicable pointers. The session `.md` files are the source of truth; pointers and the index are conveniences — if they drift, rerun `/save` or `/use`.
+Every `/save` and `/read` writes all applicable pointers. The session `.md` files are the source of truth; pointers and the index are conveniences — if they drift, rerun `/save` or `/read`.
 
 ## Install
 
@@ -47,7 +47,7 @@ Clone alongside your project, or copy the files in:
 ```bash
 # 1. Copy the slash commands into your project's Claude Code commands
 cp .claude/commands/save.md /path/to/your/project/.claude/commands/
-cp .claude/commands/use.md  /path/to/your/project/.claude/commands/
+cp .claude/commands/read.md /path/to/your/project/.claude/commands/
 
 # 2. Install the sl script (pick one)
 # Option A: per-project
@@ -121,11 +121,11 @@ Tell Claude: `resume ENG-123-oauth-login` or `read .local/sessions/ENG-123-oauth
 Then flip the pointer so the statusline catches up:
 
 ```
-/use ENG-123-oauth-login   # by name
-/use 3                     # by row number from `sl` (faster)
+/read ENG-123-oauth-login   # by name
+/read 3                     # by row number from `sl` (faster)
 ```
 
-`/use` is the pointer-only counterpart to `/save` — it writes the active-session pointer files but doesn't touch the session `.md`. Handy when you resume in one terminal while another terminal is still on a different session.
+`/read` is the pointer-only counterpart to `/save` — it writes the active-session pointer files but doesn't touch the session `.md`. Handy when you resume in one terminal while another terminal is still on a different session.
 
 ## Session file format
 
@@ -169,7 +169,7 @@ resume_hint: |
 ## How the pieces fit
 
 ```
-   /save ENG-123-oauth            /use 3 (or /use ENG-123-oauth)
+   /save ENG-123-oauth            /read 3 (or /read ENG-123-oauth)
        │                                    │
        │   writes snapshot +                │   writes pointers only
        │   index + pointers                 │
@@ -183,7 +183,7 @@ resume_hint: |
    future Claude sessions read the snapshot to resume
 
   statusline.sh also writes ~/.claude/runtime/instance-<sid>.json every render
-  — that's how /save and /use discover which terminal they're in.
+  — that's how /save and /read discover which terminal they're in.
 ```
 
 **Statusline lookup order** (first hit wins):
@@ -195,9 +195,9 @@ resume_hint: |
 
 When the pointer is found via walk-up, the statusline also locates the session's `.md` file in the same `.local/sessions/` dir and prints its on-disk size — e.g. `ENG-123-oauth-login (9.7K) ctx:42%`. Pairing file size with live context usage makes both "how much context is this costing" signals scannable as one unit. Global-fallback hits skip the size since the owning repo is unknown.
 
-**Why session_id keying.** Claude Code runs one process per terminal, each with a unique `session_id` in the JSON it pipes to statuslines. The statusline uses that to write a heartbeat file (`~/.claude/runtime/instance-<session_id>.json` = current cwd). When `/save` or `/use` runs, it scans that directory to figure out which `session_id` is *this terminal* (most-recent heartbeat whose cwd matches ours), then writes session_id-keyed pointers. Two terminals in the same repo now track different sessions without stomping on each other.
+**Why session_id keying.** Claude Code runs one process per terminal, each with a unique `session_id` in the JSON it pipes to statuslines. The statusline uses that to write a heartbeat file (`~/.claude/runtime/instance-<session_id>.json` = current cwd). When `/save` or `/read` runs, it scans that directory to figure out which `session_id` is *this terminal* (most-recent heartbeat whose cwd matches ours), then writes session_id-keyed pointers. Two terminals in the same repo now track different sessions without stomping on each other.
 
-`sl` stays repo-local by design — each project sees its own session list. Four surfaces (`/save`, `/use`, `sl`, statusline), one disk state they all agree on.
+`sl` stays repo-local by design — each project sees its own session list. Four surfaces (`/save`, `/read`, `sl`, statusline), one disk state they all agree on.
 
 ## Topic drift protection
 
