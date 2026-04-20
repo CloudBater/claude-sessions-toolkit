@@ -155,6 +155,8 @@ sd                       # show archive location + count
 
 ## Session file format
 
+See [examples/example-session.md](examples/example-session.md) for a complete, realistic example (fictional `ENG-123` OAuth login ticket). The skeleton is:
+
 ```markdown
 ---
 name: ENG-123-oauth-login
