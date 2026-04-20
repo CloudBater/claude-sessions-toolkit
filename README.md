@@ -17,11 +17,11 @@ A unit of work has a lifecycle: **create → persist → track → switch → re
 | **Switch** topics mid-chat | Silent overwrite of the old session's implicit context. | Drift detection on `/save`; `/read <name\|N>` to flip the pointer without saving. |
 | **Follow** across repos / terminals | Bound to one chat in one cwd. | Global pointer fallback; session_id-keyed pointers so two terminals in the same repo don't fight over one pointer. |
 | **Resume** cold | Re-read 200 messages. | `resume_hint` is a 2–3 sentence briefing; structured fields brief the next Claude without re-reading chat. |
-| **Retire** cleanly | No concept — you just stop using the chat. | `phase: done` locks the session; `/save` forces a new file instead of reopening it. |
+| **Retire** cleanly | No concept — you just stop using the chat. | `phase: done` locks the session; `/save` forces a new file instead of reopening it. `sd <name\|N>` soft-deletes: archives the file, clears the pointers, reversible via `mv`. |
 
 ## What this gives you
 
-Four pieces that share state through pointer files. They can't drift apart — the statusline, `sl` list, `/save`, and `/read` all read/write the same disk state.
+Five pieces that share state through pointer files. They can't drift apart — the statusline, `sl` list, `/save`, and `/read` all read/write the same disk state.
 
 1. **`/save`** — Claude Code slash command. Writes or updates `.local/sessions/<name>.md` with frontmatter + appended timeline entry. Detects topic drift. Offers compaction at 40 KB. Refuses to reopen sessions marked `phase: done`. Syncs the `.local/sessions.md` index on every save. Writes the pointer files.
 
@@ -31,7 +31,9 @@ Four pieces that share state through pointer files. They can't drift apart — t
 
 4. **`sr`** — standalone Python CLI, bash counterpart of `/read`. Writes the pointer files (all four, session_id-keyed when invoked from inside Claude Code). Accepts `sr <name>`, `sr <N>` from `sl`'s order, or `sr <substring>` (single-match only). No args prints the current pointer.
 
-5. **`statusline.sh`** — Claude Code status line (bash). Renders `cwd · branch · model · session-name (size) · ctx:N%`. Session file size sits immediately before live context usage so you read both as one "how much are we carrying" signal. Disk-only lookup (ignores `/rename`). Also writes a per-instance heartbeat (`~/.claude/runtime/instance-<session_id>.json`) so `/save`, `/read`, and `sr` can figure out which Claude terminal they're running in.
+5. **`sd`** — standalone Python CLI. Soft-deletes a session: moves the `.md` into `.local/sessions/archive/` and clears any pointer file (keyed or unkeyed, repo-local or global) that still references it. Same arg forms as `sr`. Fully reversible — `mv` the archived file back to restore. Completes the session CRUD: `/save` creates, `sl`/`sr` read, `/save` again updates, `sd` drops.
+
+6. **`statusline.sh`** — Claude Code status line (bash). Renders `cwd · branch · model · session-name (size) · ctx:N%`. Session file size sits immediately before live context usage so you read both as one "how much are we carrying" signal. Disk-only lookup (ignores `/rename`). Also writes a per-instance heartbeat (`~/.claude/runtime/instance-<session_id>.json`) so `/save`, `/read`, and `sr` can figure out which Claude terminal they're running in.
 
 **Pointer files.** Two terminals in the same repo working on different sessions would collide on a single pointer — so pointers are keyed by Claude's `session_id` when available, with unkeyed versions as a shared fallback:
 
@@ -51,16 +53,16 @@ Clone alongside your project, or copy the files in:
 cp .claude/commands/save.md /path/to/your/project/.claude/commands/
 cp .claude/commands/read.md /path/to/your/project/.claude/commands/
 
-# 2. Install the sl + sr scripts (pick one)
+# 2. Install the sl + sr + sd scripts (pick one)
 # Option A: per-project
-cp scripts/sl scripts/sr /path/to/your/project/scripts/
-chmod +x /path/to/your/project/scripts/{sl,sr}
-# Run as: !scripts/sl, !scripts/sr  (prefix with ! in Claude Code to bypass LLM)
+cp scripts/sl scripts/sr scripts/sd /path/to/your/project/scripts/
+chmod +x /path/to/your/project/scripts/{sl,sr,sd}
+# Run as: !scripts/sl, !scripts/sr, !scripts/sd  (prefix with ! in Claude Code to bypass LLM)
 
 # Option B: global
-cp scripts/sl scripts/sr ~/bin/  # or /usr/local/bin/
-chmod +x ~/bin/sl ~/bin/sr
-# Run from anywhere: sl, sr
+cp scripts/sl scripts/sr scripts/sd ~/bin/  # or /usr/local/bin/
+chmod +x ~/bin/sl ~/bin/sr ~/bin/sd
+# Run from anywhere: sl, sr, sd
 
 # 3. Install the statusline (optional)
 cp bin/statusline.sh ~/.claude/statusline.sh
@@ -133,6 +135,23 @@ sr 3
 ```
 
 `/read` and `sr` are the pointer-only counterparts to `/save` — they write the active-session pointer files without touching the session `.md`. Handy when you resume in one terminal while another terminal is still on a different session. The bash `sr` is disk-only (no LLM round-trip) and is what you'd wire into shell aliases or scripts; the slash `/read` is what you use mid-conversation without switching surfaces.
+
+### Drop a session
+
+```
+sd ENG-123-oauth-login   # archive by name
+sd 3                     # archive row N from `sl`
+sd                       # show archive location + count
+```
+
+`sd` moves the `.md` file into `.local/sessions/archive/` and clears any pointer file (any terminal, any repo) that was still pointing at it. Next `sl` / statusline render will no longer see it. Restore with a plain `mv` — `sd` prints the exact command. The session CRUD rounds out like this:
+
+| Op | Slash (in chat) | Bash (in terminal) | Writes | Needs LLM |
+|---|---|---|---|---|
+| Create / Update | `/save` | — | snapshot + index + pointers | yes |
+| Read (list) | — | `sl` | nothing | no |
+| Read (switch active) | `/read` | `sr` | pointers only | no |
+| Delete (archive) | — | `sd` | moves file + clears pointers | no |
 
 ## Session file format
 

@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""Soft-delete a saved session — archive the .md file and clear any pointers
+referencing it. Disk-only; no LLM round-trip.
+
+The session file is moved to .local/sessions/archive/ so it doesn't show up in
+`sl` listings or the statusline, but is kept for easy restore. Any pointer file
+(.local/current-session*, ~/.claude/current-session*) whose content is the
+dropped name is deleted — so if any terminal was showing this session in the
+statusline, it quietly falls back to the next pointer in priority order (or to
+no session display at all).
+
+Usage:
+    sd <name>     # archive session by name
+    sd <N>        # archive row N from `sl` (1-based, same sort order)
+    sd <sub>      # archive by single-match substring
+    sd            # print usage + archived-session count
+
+Restore (manual): `mv .local/sessions/archive/<name>.md .local/sessions/`
+"""
+from __future__ import annotations
+
+import re
+import sys
+from datetime import date, datetime
+from pathlib import Path
+
+DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
+KV_RE = re.compile(r"^([A-Za-z_][\w-]*):\s*(.*)$")
+
+
+def find_repo() -> Path | None:
+    """Walk up from cwd looking for a .local/sessions directory."""
+    cur = Path.cwd().resolve()
+    for parent in [cur, *cur.parents]:
+        if (parent / ".local" / "sessions").is_dir():
+            return parent
+    return None
+
+
+def parse_frontmatter(path: Path) -> dict:
+    fm: dict = {}
+    with path.open("r", encoding="utf-8", errors="replace") as f:
+        first = f.readline()
+        if first.rstrip("\n") != "---":
+            return fm
+        for line in f:
+            s = line.rstrip("\n")
+            if s == "---":
+                break
+            if line.startswith((" ", "\t", "-")):
+                continue
+            m = KV_RE.match(s)
+            if not m:
+                continue
+            key, val = m.group(1), m.group(2).strip()
+            if val in ("|", ">", ""):
+                continue
+            fm[key] = val.strip('"').strip("'")
+    return fm
+
+
+def list_sessions_ordered(sessions_dir: Path) -> list[str]:
+    """Return session names in the same order `sl` prints them (updated desc)."""
+    rows = []
+    for p in sessions_dir.glob("*.md"):
+        fm = parse_frontmatter(p)
+        updated = fm.get("updated", "")
+        m = DATE_RE.match(updated)
+        upd = m.group(1) if m else date.fromtimestamp(p.stat().st_mtime).isoformat()
+        rows.append((upd, p.stem))
+    rows.sort(key=lambda r: r[0], reverse=True)
+    return [name for _, name in rows]
+
+
+def resolve_arg(arg: str, ordered: list[str]) -> str | None:
+    if arg.isdigit():
+        idx = int(arg)
+        if idx < 1 or idx > len(ordered):
+            print(
+                f"Row {idx} out of range (1..{len(ordered)}). Run `sl` to see the list.",
+                file=sys.stderr,
+            )
+            return None
+        return ordered[idx - 1]
+
+    if arg in ordered:
+        return arg
+
+    subs = [n for n in ordered if arg.lower() in n.lower()]
+    if len(subs) == 1:
+        return subs[0]
+    if not subs:
+        print(f'No session matches "{arg}".', file=sys.stderr)
+        return None
+    print(f'"{arg}" matches {len(subs)} sessions:', file=sys.stderr)
+    for s in subs[:5]:
+        print(f"  {s}", file=sys.stderr)
+    print("Be more specific or pass the row number from `sl`.", file=sys.stderr)
+    return None
+
+
+def archive_session(sessions_dir: Path, name: str) -> Path:
+    src = sessions_dir / f"{name}.md"
+    archive_dir = sessions_dir / "archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    dst = archive_dir / src.name
+    if dst.exists():
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        dst = archive_dir / f"{name}.{ts}.md"
+    src.rename(dst)
+    return dst
+
+
+def clear_pointers(repo: Path, name: str) -> int:
+    """Delete every pointer file whose content matches the archived session name.
+
+    Scans both the repo-local .local/ and the global ~/.claude/. Keyed and
+    unkeyed pointers are treated identically — if a file points at the dropped
+    session, it goes away.
+    """
+    cleared = 0
+    roots = [repo / ".local", Path.home() / ".claude"]
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for p in root.glob("current-session*"):
+            if not p.is_file():
+                continue
+            try:
+                lines = p.read_text(encoding="utf-8", errors="replace").strip().splitlines()
+            except OSError:
+                continue
+            val = lines[0].strip() if lines else ""
+            if val == name:
+                try:
+                    p.unlink()
+                    cleared += 1
+                except OSError:
+                    pass
+    return cleared
+
+
+def main() -> int:
+    arg = " ".join(sys.argv[1:]).strip()
+    repo = find_repo()
+    if repo is None:
+        print("No .local/sessions/ found in this project tree.", file=sys.stderr)
+        return 1
+
+    sessions_dir = repo / ".local" / "sessions"
+    archive_dir = sessions_dir / "archive"
+
+    if not arg:
+        archived = list(archive_dir.glob("*.md")) if archive_dir.is_dir() else []
+        print(f"Usage: {Path(sys.argv[0]).name} <name|N>")
+        print(f"Archive: {archive_dir} ({len(archived)} file(s))")
+        return 0
+
+    ordered = list_sessions_ordered(sessions_dir)
+    if not ordered:
+        print(f"No saved sessions in {sessions_dir}.", file=sys.stderr)
+        return 1
+
+    name = resolve_arg(arg, ordered)
+    if name is None:
+        return 1
+
+    dst = archive_session(sessions_dir, name)
+    cleared = clear_pointers(repo, name)
+
+    try:
+        dst_display = dst.relative_to(repo)
+    except ValueError:
+        dst_display = dst
+
+    print(f"Dropped: {name}")
+    print(f"  Archived to: {dst_display}")
+    if cleared:
+        print(f"  Cleared {cleared} pointer file(s)")
+    print(f"  Restore: mv {dst} {sessions_dir / (name + '.md')}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
