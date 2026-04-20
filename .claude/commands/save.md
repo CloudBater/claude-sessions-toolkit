@@ -1,227 +1,136 @@
-Save or update session context so future conversations can resume seamlessly.
+Save a tight session snapshot so a future conversation can resume.
 
 ## Input
 
-$ARGUMENTS — optional session name override (e.g., `oauth-login`, `ENG-123-oauth`). If omitted, auto-detect from context.
+$ARGUMENTS — optional session name. If omitted, auto-detect.
 
 ## Behavior
 
-### 1. Detect Session Name
+### 1. Pick the session name
 
-Determine the session name using this priority:
+In order:
 
-1. **Explicit argument** — if `$ARGUMENTS` is provided and non-empty, use it as the session name
-2. **Existing session file** — scan `.local/sessions/` for a file whose content matches the current working context (same ticket, same branch, same feature area). If found, update that file
-3. **Auto-derive from context** — build the name from available signals:
-   - If a ticket number is visible in recent commits, branch name, or conversation (e.g. `ENG-123`, `PROJ-45`, `#456`): use `<ticket>-short-title` (e.g., `ENG-123-oauth-login`)
-   - If no ticket but a clear feature name exists: use kebab-case feature name (e.g., `oauth-login`, `sso-auth`)
-   - Last resort: use `session-YYYY-MM-DD` with today's date
+1. **Explicit `$ARGUMENTS`** — use as-is (kebab-case).
+2. **Existing file matches current work** — same ticket, branch, or feature → update it.
+3. **Derive** — `<ticket>-short-slug` if a ticket is visible; else kebab-case feature; last resort `session-YYYY-MM-DD`.
 
-### 1.5. Detect Topic Drift — DO NOT overwrite unrelated sessions
+### 2. Drift check (only when updating an existing file)
 
-**Critical safety check.** If you pick an existing session file to update, verify the current work actually belongs to that session. If the topic has drifted, save as a new session instead.
-
-Drift signals (any one is enough to trigger the check):
-
-1. **Ticket change** — a different ticket ID appears in recent commits, branch name, or the conversation than the ticket recorded in the existing session file
-2. **Branch mismatch** — current git branch differs from the existing session's `branch.backend` or `branch.frontend`
-3. **Files diverge** — the files you've been touching in this conversation overlap <30% with the session's recorded `files_touched`
-4. **Scope mismatch** — the feature you've been working on (judged from recent commits, conversation topics, file paths) doesn't match the session's `scope` line
-
-When any drift signal fires, **STOP and ask the user** before writing:
+If the existing file's ticket/branch/scope clearly doesn't match the current work, **stop and ask**:
 
 ```
-Detected topic drift.
+Topic drift suspected.
+  Existing: <name> (<ticket>, <scope>)
+  Current:  <detected ticket / branch / scope>
 
-Current saved session:
-  Name:   <existing-name>
-  Ticket: <existing-ticket>
-  Scope:  <existing-scope>
-  Files:  <existing-files-summary>
-
-What you've been working on now:
-  Ticket: <detected-ticket or "none">
-  Branch: <current-branch>
-  Scope:  <inferred-scope>
-  Files:  <current-files-summary>
-
-These look like different topics. How should I save?
-
-  (a) Save as NEW session — suggested name: <new-name>
-      Keeps <existing-name> untouched; creates a separate file.
-  (b) Update <existing-name> anyway (if this IS a continuation)
-  (c) Skip save
+(a) Save as NEW session: <suggested-new-name>
+(b) Update <existing-name> anyway
+(c) Skip
 ```
 
-Default to **(a)**. Rationale: losing context by merging two topics into one file is much worse than having one extra session file. The user can always delete an extra file; they can't recover a clean session that got polluted by unrelated work.
+Default (a). Skip the check when `$ARGUMENTS` is given, no existing file matches, or the existing session's `phase` is `done`.
 
-If the user picks (a):
-- Derive a new name using the normal rules from Section 1 but using the CURRENT work's ticket/feature
-- Create a fresh session file — do not copy anything from the existing session
-- Update `.local/current-session` to the new name
-- The previous session file stays exactly as it was
+### 3. Write or update — lite by default
 
-If the user picks (b):
-- Proceed to Section 2 with the existing session name
-- Be extra careful when merging `done:` lists — label new entries with today's date so the drift is at least visible in the history
-
-Skip the drift check entirely when:
-- `$ARGUMENTS` is an explicit session name (user already decided)
-- No existing session file matches (nothing to drift from)
-- The existing session's `phase` is `done` (completed sessions should never be reopened; force a new session)
-
-### 2. Gather Context
-
-Collect the following from the current conversation and repo state:
+**Required frontmatter:**
 
 ```yaml
-name: <session-name>
-ticket: <ticket-id or null>
-started: <date first seen or today>
-updated: <today>
-branch:
-  backend: <current BE branch, if applicable>
-  frontend: <current FE branch, if applicable>
-scope: <brief — which apps/features are touched>
-phase: <current phase — planning | implementing | testing | deploying | done>
-status: <one-line summary of where things stand — surfaces in `sl` output>
-done:
-  - <completed items, most recent first>
-pending:
-  - <remaining items>
-blockers:
-  - <blockers if any, otherwise omit>
-key_decisions:
-  - <important decisions made during this session>
-files_touched:
-  - <key files modified, grouped if helpful>
-lessons_learned:
-  - <gotchas, bugs found, patterns discovered>
+name: <kebab-case>
+updated: <today YYYY-MM-DD>
+phase: planning | implementing | testing | deploying | done
+status: <one line, ≤200 chars — surfaces in `sl`>
 resume_hint: |
-  <2-3 sentences telling a future session exactly what to do next.
-   Include exact commands or file paths when possible.>
+  <≤5 lines: exact next command/file to open, plus 1-2 lines of context>
 ```
 
-### 3. Write or Update
+**Optional — include only if non-trivial and novel:**
 
-- **Directory**: `.local/sessions/`
-- **Filename**: `<session-name>.md` (kebab-case)
-- **Format**: YAML frontmatter between `---` fences, followed by a `## Timeline` section with date-stamped entries
+```yaml
+ticket: <id>
+branch: { backend: <b>, frontend: <b> }   # only if relevant
+scope: <one phrase>
+done: [<recent items, ≤5>]
+pending: [<remaining items, ≤5>]
+blockers: [<if any>]
+key_decisions: [<≤3, each ≤1 line>]
+lessons_learned: [<≤3, each ≤1 line — only genuinely new lessons>]
+files_touched: [<key files, ≤8>]
+```
 
-If the file already exists:
-- Update the frontmatter fields (updated, branch, phase, status, done, pending, etc.)
-- **Append** a new timeline entry — never delete previous entries
-- Merge `done` lists (don't duplicate)
+Skip an optional section if it has nothing new to say. **Don't pad.**
 
-If the file is new:
-- Create it with all fields populated
-- Add the first timeline entry
+### 4. Timeline — one entry per save
 
-### 4. Timeline Entry Format
+Append (never replace) under `## Timeline`:
 
 ```markdown
-## Timeline
-
 ### YYYY-MM-DD
 
-- <what was accomplished today>
-- <key changes or decisions>
-- <what's next>
+- <≤5 bullets, ≤1 line each: what changed, decisions, next step>
 ```
 
-### 4.5. Check Size — Ask Before Bloat
+### 5. Update-only path (existing file)
 
-After writing the session file, check its size:
+When updating, **change only what changed**:
 
-```bash
-wc -c .local/sessions/<name>.md
-```
+- Refresh `updated`, `status`, `phase`, `resume_hint`.
+- Append a new timeline entry.
+- Add to `done` / `key_decisions` / `lessons_learned` only if you have new items. Don't rewrite existing items.
+- Never delete prior timeline entries.
 
-If the file exceeds **40 KB**, ask the user if they want to compact it. Compacting workflow:
+This keeps the diff small and the file growing slowly.
 
-- **Preserve verbatim**: latest `resume_hint`, latest `status`, `key_decisions`, `lessons_learned`, last 1-2 timeline entries
-- **Compact**: collapse older daily timeline entries into weekly/phase summaries; trim `done:` list to recent milestones (move older ones into timeline summaries); dedupe `files_touched:` if it appears in every timeline entry; trim verbose status to 2-3 sentences
-- **Reduce obsolete context**: when a major pivot happens (e.g. POC abandoned, approach changed), compress the obsolete approach into a short "archived" section and expand the current approach
-- **Target**: 15-25 KB
+### 6. Size target
 
-Typical session files are 5-30 KB. 40 KB+ usually means timeline bloat or unreduced pivot history.
+Aim for **15-25 KB total**. If you're approaching 30 KB, compact older timeline entries into a one-line phase summary before adding today's entry.
 
-### 5. Sync Sessions Index with Disk
+### 7. Sync `.local/sessions.md` index
 
-**Disk is the source of truth** — the index must always reflect what exists in `.local/sessions/`.
+Disk is the source of truth.
 
-Sync workflow:
+1. List `.local/sessions/*.md`.
+2. In `.local/sessions.md`, reconcile the `## Saved Sessions` block: add missing files (one-liner from frontmatter `status:`, ≤200 chars), remove dead links, refresh the current session's line.
+3. Preserve any active-session blocks above `## Saved Sessions` — only touch that one list.
 
-1. **List disk contents**: `ls .local/sessions/*.md` — this is the authoritative set
-2. **Parse existing index** (`.local/sessions.md`, if it exists): extract session names from `## Saved Sessions` entries (pattern `[<name>](sessions/<name>.md)`)
-3. **Reconcile**:
-   - **Add** any on-disk file that's not in the index (pull the one-liner from the file's `status:` frontmatter field, truncated to ~200 chars)
-   - **Remove** any index entry whose file doesn't exist on disk
-   - **Update** the current session's entry with the latest `status:` line
-4. **Preserve** any multi-terminal active-session blocks at the top of `sessions.md` — only reconcile the `## Saved Sessions` list at the bottom
-5. If multiple `## Saved Sessions` headers exist (legacy duplication), consolidate into one sorted list
+### 8. Write the pointer files
 
-Always run this full sync step during `/save`, not just when adding the current session. This prevents the index from accumulating dead links when the user deletes session files manually.
-
-### 5.5. Write Current-Session Pointers (repo-local + global, session_id-keyed + unkeyed)
-
-Write the session name to up to four pointer files. Two unkeyed (shared, backward-compatible) and two session_id-keyed (per-terminal).
-
-**Step 1 — discover this terminal's `session_id`.** Claude Code does not expose it as an env var, but the bundled statusline writes a heartbeat to `~/.claude/runtime/instance-<session_id>.json` on every render:
+Discover this terminal's `session_id` from the statusline heartbeat:
 
 ```bash
 session_id=""
 if compgen -G "$HOME/.claude/runtime/instance-*.json" >/dev/null 2>&1; then
-    session_id="$(ls -t "$HOME/.claude/runtime/"instance-*.json 2>/dev/null | while read -r f; do
-        cwd="$(jq -r '.cwd // empty' "$f" 2>/dev/null)"
-        if [ "$cwd" = "$(pwd)" ]; then
-            basename "$f" .json | sed 's/^instance-//'
-            break
-        fi
-    done)"
+  session_id="$(ls -t "$HOME/.claude/runtime/"instance-*.json | while read -r f; do
+    [ "$(jq -r '.cwd // empty' "$f" 2>/dev/null)" = "$(pwd)" ] && \
+      basename "$f" .json | sed 's/^instance-//' && break
+  done)"
 fi
 ```
 
-The most-recently-modified heartbeat whose `cwd` matches ours is this terminal. If no match is found (statusline never rendered, or cwd differs), `session_id` stays empty — write only the unkeyed pointers.
-
-**Step 2 — write the pointers:**
+Write four pointers (skip the keyed pair if `session_id` is empty):
 
 ```bash
-# Unkeyed (always): shared across terminals; sl reads .local/current-session for ★
-echo "<session-name>" > .local/current-session
-mkdir -p "$HOME/.claude" && echo "<session-name>" > "$HOME/.claude/current-session"
-
-# Keyed (when session_id is known): per-terminal, no cross-terminal collision
-if [ -n "$session_id" ]; then
-    echo "<session-name>" > ".local/current-session-$session_id"
-    echo "<session-name>" > "$HOME/.claude/current-session-$session_id"
-fi
+echo "<name>" > .local/current-session
+echo "<name>" > "$HOME/.claude/current-session"
+[ -n "$session_id" ] && echo "<name>" > ".local/current-session-$session_id"
+[ -n "$session_id" ] && echo "<name>" > "$HOME/.claude/current-session-$session_id"
 ```
 
-Which file does which job:
+Pointer roles:
+- **Keyed** (`current-session-<sid>`) — THIS terminal's active session. Read by the statusline to render the label.
+- **Unkeyed** (`current-session`) — most-recent-across-terminals. Read by `sl` for its ★ marker. **Not** consulted by the statusline.
 
-- **`.local/current-session`** — repo-local unkeyed pointer. Read by `sl` (★ marker) and by the bundled statusline as a fallback when there's no keyed match.
-- **`.local/current-session-<session_id>`** — repo-local keyed pointer. Read first by the statusline. Lets two terminals in the **same** repo point at different sessions.
-- **`~/.claude/current-session`** — global unkeyed pointer. Read by the statusline as a last-resort fallback when cwd is in a sibling repo that has no `.local/current-session` of its own.
-- **`~/.claude/current-session-<session_id>`** — global keyed pointer. Per-terminal fallback for cross-repo work.
-
-Every `/save` overwrites the applicable pointers. If the user wants to switch active session without saving, they should run `/read <name|N>` instead.
-
-### 6. Output
-
-After saving, print:
+### 9. Output
 
 ```
-Saved: .local/sessions/<name>.md
+Saved: .local/sessions/<name>.md (<size>)
 Phase: <phase>
-Next: <resume_hint summary>
+Next:  <one-line resume_hint summary>
 ```
 
 ## Rules
 
-- Always use kebab-case for filenames
-- Ticket numbers go first in the name: `ENG-123-oauth-login` not `oauth-login-ENG-123`
-- Don't save secrets, credentials, or tokens
-- Don't duplicate what's already in spec/design files — reference them instead (e.g., "see docs/oauth-design.md")
-- Keep `resume_hint` actionable — it should tell the next session exactly what command to run or what file to open
-- The session file is a living document — each `/save` adds to it, never replaces history
+- kebab-case filenames; ticket goes first (`ENG-123-oauth-login`, not `oauth-login-ENG-123`).
+- No secrets, tokens, or credentials.
+- Reference spec/design files; don't duplicate them.
+- `resume_hint` is the most important field — make it actionable (a command, a file path, or a 1-sentence next step).
+- Be terse. A future session will read this; brevity is respect for that future context budget.

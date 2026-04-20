@@ -10,13 +10,17 @@
 #
 # Resolution priority for the current session name (first match wins):
 #   1. <repo>/.local/current-session-<session_id>   (keyed, repo-local)
-#   2. <repo>/.local/current-session                (unkeyed, repo-local; sl ★)
-#   3. ~/.claude/current-session-<session_id>       (keyed, global)
-#   4. ~/.claude/current-session                    (unkeyed, global fallback)
+#   2. ~/.claude/current-session-<session_id>       (keyed, global)
 #
-# Keyed pointers are what let two terminals in the same repo track different
-# sessions. The unkeyed pointers remain as a shared "most-recent" fallback and
-# as the source sl uses to mark the current session.
+# THIS terminal's label only — no fallback to the unkeyed shared pointer.
+# A new Claude Code session starts blank; the user must `/read <name>` to
+# load a saved session into this terminal. This avoids the silent "label
+# says X but the model never loaded X" failure mode.
+#
+# The unkeyed pointers (.local/current-session, ~/.claude/current-session)
+# are still written by /save and read by `sl` for its ★ marker — they
+# represent "most recent across terminals" but are deliberately NOT used
+# for per-terminal label rendering.
 #
 # Usage (in ~/.claude/settings.json):
 #   "statusLine": { "type": "command", "command": "bash /path/to/bin/statusline.sh" }
@@ -59,26 +63,15 @@ find_current_session() {
         dir="$(dirname "$dir")"
     done
 
-    if [ -n "$repo" ]; then
-        if [ -n "$SESSION_ID" ] && [ -f "$repo/.local/current-session-$SESSION_ID" ]; then
-            SESSION_NAME="$(head -n1 "$repo/.local/current-session-$SESSION_ID" | tr -d '\n\r')"
-            SESSION_FILE="$repo/.local/sessions/$SESSION_NAME.md"
-            return 0
-        fi
-        if [ -f "$repo/.local/current-session" ]; then
-            SESSION_NAME="$(head -n1 "$repo/.local/current-session" | tr -d '\n\r')"
-            SESSION_FILE="$repo/.local/sessions/$SESSION_NAME.md"
-            return 0
-        fi
-    fi
+    [ -z "$SESSION_ID" ] && return 1
 
-    if [ -n "$SESSION_ID" ] && [ -f "$HOME/.claude/current-session-$SESSION_ID" ]; then
-        SESSION_NAME="$(head -n1 "$HOME/.claude/current-session-$SESSION_ID" | tr -d '\n\r')"
-        SESSION_FILE=""
+    if [ -n "$repo" ] && [ -f "$repo/.local/current-session-$SESSION_ID" ]; then
+        SESSION_NAME="$(head -n1 "$repo/.local/current-session-$SESSION_ID" | tr -d '\n\r')"
+        SESSION_FILE="$repo/.local/sessions/$SESSION_NAME.md"
         return 0
     fi
-    if [ -f "$HOME/.claude/current-session" ]; then
-        SESSION_NAME="$(head -n1 "$HOME/.claude/current-session" | tr -d '\n\r')"
+    if [ -f "$HOME/.claude/current-session-$SESSION_ID" ]; then
+        SESSION_NAME="$(head -n1 "$HOME/.claude/current-session-$SESSION_ID" | tr -d '\n\r')"
         SESSION_FILE=""
         return 0
     fi

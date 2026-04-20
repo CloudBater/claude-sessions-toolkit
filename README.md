@@ -72,24 +72,6 @@ chmod +x ~/.claude/statusline.sh
 #     "type": "command",
 #     "command": "bash ~/.claude/statusline.sh"
 #   }
-
-# 4. Install the SessionStart hook (optional but recommended)
-# Without it, the statusline can show a session that isn't actually loaded
-# in this terminal's context (inherited from a sibling terminal). The hook
-# fixes that by auto-loading the inherited session on session start.
-mkdir -p /path/to/your/project/.claude/hooks
-cp hooks/session-start-load.sh /path/to/your/project/.claude/hooks/
-chmod +x /path/to/your/project/.claude/hooks/session-start-load.sh
-# Add to that project's .claude/settings.json:
-#   "hooks": {
-#     "SessionStart": [{
-#       "matcher": "",
-#       "hooks": [{
-#         "type": "command",
-#         "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-start-load.sh"
-#       }]
-#     }]
-#   }
 ```
 
 Add `.local/` to your `.gitignore` so session files stay local.
