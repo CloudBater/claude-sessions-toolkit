@@ -9,23 +9,36 @@ The leftmost column (#) is a stable 1-based row index matching the sort order �
 pass it to `sr <N>` (bash) or `/read <N>` (in Claude Code) to switch active
 session without retyping the full name.
 
-★ marks any session that at least one Claude Code terminal currently points at
-(union of .local/current-session and .local/current-session-<session_id>).
+★ marks sessions that a *live* Claude Code terminal currently points at.
+Liveness is decided by the statusline heartbeat at
+~/.claude/runtime/instance-<session_id>.json — a keyed pointer
+(current-session-<session_id>) only counts toward ★ when its heartbeat was
+written within SESSIONS_LIVE_THRESHOLD_SEC (default 30 min). Pointers whose
+heartbeat is missing or older than SESSIONS_GC_THRESHOLD_SEC (default 24h) are
+silently deleted on every `sl` run, so dead terminals stop polluting the list.
+The unkeyed `current-session` pointer is intentionally ignored — it has no sid
+to liveness-check against.
 
 Usage:
-    sl              # full list
+    sl              # full list (also GCs dead pointers as a side effect)
     sl oauth        # filter by substring (session name, phase, or status)
     sl ENG-123      # filter by ticket prefix
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
+import time
 from datetime import date
 from pathlib import Path
 
 DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 KV_RE = re.compile(r"^([A-Za-z_][\w-]*):\s*(.*)$")
+POINTER_PREFIX = "current-session-"
+
+LIVE_THRESHOLD_SEC = int(os.environ.get("SESSIONS_LIVE_THRESHOLD_SEC", "1800"))
+GC_THRESHOLD_SEC = int(os.environ.get("SESSIONS_GC_THRESHOLD_SEC", "86400"))
 
 
 def find_sessions_dir() -> Path | None:
@@ -38,24 +51,55 @@ def find_sessions_dir() -> Path | None:
     return None
 
 
-def read_current_sessions(sessions_dir: Path) -> set[str]:
-    """Read every .local/current-session* file and return the set of active names.
+def _heartbeat_age(sid: str, now: float) -> float | None:
+    """Return seconds since the heartbeat was last written, or None if missing."""
+    hb = Path.home() / ".claude" / "runtime" / f"instance-{sid}.json"
+    try:
+        return now - hb.stat().st_mtime
+    except OSError:
+        return None
 
-    Includes the unkeyed pointer (.local/current-session) and every per-Claude-
-    instance keyed pointer (.local/current-session-<session_id>). A session is
-    "current" if any terminal points at it — ★ marks them all.
+
+def read_current_sessions(sessions_dir: Path) -> set[str]:
+    """Return sessions a live terminal points at; GC pointers for dead terminals.
+
+    A keyed pointer `current-session-<sid>` is:
+      * live   — heartbeat fresh (≤ LIVE_THRESHOLD_SEC) → contributes to ★
+      * stale  — heartbeat exists but older than LIVE_THRESHOLD_SEC and younger
+                 than GC_THRESHOLD_SEC → no ★, kept on disk so a returning idle
+                 terminal still resolves its session via the statusline
+      * dead   — heartbeat missing or older than GC_THRESHOLD_SEC → deleted
+
+    The unkeyed `current-session` pointer is skipped — it has no sid to check.
+    Pointers in both .local/ (repo) and ~/.claude/ (global) are scanned together.
     """
+    now = time.time()
     active: set[str] = set()
-    parent = sessions_dir.parent
-    for p in parent.glob("current-session*"):
-        if not p.is_file():
+    roots = [sessions_dir.parent, Path.home() / ".claude"]
+    for root in roots:
+        if not root.is_dir():
             continue
-        try:
-            first = p.read_text(encoding="utf-8", errors="replace").strip().splitlines()
-            if first:
-                active.add(first[0].strip())
-        except OSError:
-            continue
+        for p in root.glob(f"{POINTER_PREFIX}*"):
+            if not p.is_file():
+                continue
+            sid = p.name[len(POINTER_PREFIX):]
+            if not sid:
+                continue
+            age = _heartbeat_age(sid, now)
+            if age is None or age >= GC_THRESHOLD_SEC:
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+                continue
+            if age > LIVE_THRESHOLD_SEC:
+                continue
+            try:
+                first = p.read_text(encoding="utf-8", errors="replace").strip().splitlines()
+                if first:
+                    active.add(first[0].strip())
+            except OSError:
+                continue
     return active
 
 
