@@ -151,4 +151,58 @@ if [ -n "$CTX_PCT" ]; then
     OUT="${OUT} ${ctx_color}ctx:${ctx_int}%${RESET}"
 fi
 
+# --- rate-limit usage (Pro/Max only; absent until first API response) ---
+# rate_limits.{five_hour,seven_day}.{used_percentage, resets_at(epoch s)}.
+# Each window may be independently absent — render only what's present.
+fmt_reset() {
+    # $1 = epoch seconds, $2 = strftime format. BSD (-r) then GNU (-d) fallback.
+    local e="$1" f="$2"
+    [ -z "$e" ] && return 0
+    date -r "$e" "+$f" 2>/dev/null || date -d "@$e" "+$f" 2>/dev/null || true
+}
+
+render_limit() {
+    # $1 label, $2 used_pct, $3 resets_at(epoch), $4 reset strftime fmt
+    local label="$1" pct="$2" reset="$3" rfmt="$4"
+    [ -z "$pct" ] && return 0
+    local pi; pi="$(printf '%.0f' "$pct")"
+    local col="$GREEN"
+    if   [ "$pi" -ge 90 ]; then col="$RED"
+    elif [ "$pi" -ge 70 ]; then col="$YELLOW"
+    fi
+    local seg="${col}${label}:${pi}%${RESET}"
+    local rt; rt="$(fmt_reset "$reset" "$rfmt")" || true
+    [ -n "$rt" ] && seg="${seg}${DIM}↺${rt}${RESET}"
+    OUT="${OUT} ${seg}"
+}
+
+H5_PCT="$(jq_get '.rate_limits.five_hour.used_percentage')"
+H5_RST="$(jq_get '.rate_limits.five_hour.resets_at')"
+D7_PCT="$(jq_get '.rate_limits.seven_day.used_percentage')"
+D7_RST="$(jq_get '.rate_limits.seven_day.resets_at')"
+
+render_limit "5h" "$H5_PCT" "$H5_RST" "%H:%M"
+render_limit "7d" "$D7_PCT" "$D7_RST" "%m/%d %H:%M"
+
+# --- VS Code memory -----------------------------------------------------
+# Sum RSS (KB on macOS) of every "Visual Studio Code" process, shown as
+# absolute GB + % of total physical RAM. Color: red ≥90%, yellow ≥70%.
+# The [V] bracket trick keeps this grep from matching its own ps entry.
+# pipefail-safe: `|| true` swallows grep's exit 1 when VS Code isn't running.
+VSC_KB="$(ps -axo rss=,command= 2>/dev/null | grep -i '[V]isual Studio Code' | awk '{s+=$1} END{print s+0}' || true)"
+if [ -n "$VSC_KB" ] && [ "$VSC_KB" -gt 0 ] 2>/dev/null; then
+    VSC_GB="$(awk "BEGIN{printf \"%.1f\", $VSC_KB/1048576}")"
+    MEM_TOTAL_B="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+    if [ "$MEM_TOTAL_B" -gt 0 ] 2>/dev/null; then
+        VSC_PCT="$(awk "BEGIN{printf \"%.0f\", $VSC_KB*1024*100/$MEM_TOTAL_B}")"
+        if   [ "$VSC_PCT" -ge 90 ]; then vcol="$RED"
+        elif [ "$VSC_PCT" -ge 70 ]; then vcol="$YELLOW"
+        else                             vcol="$GREEN"
+        fi
+        OUT="${OUT} ${vcol}vsc:${VSC_GB}G ${VSC_PCT}%${RESET}"
+    else
+        OUT="${OUT} ${GREEN}vsc:${VSC_GB}G${RESET}"
+    fi
+fi
+
 printf '%s\n' "$OUT"
