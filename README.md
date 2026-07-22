@@ -31,7 +31,7 @@ Five pieces that share state through pointer files. They can't drift apart — t
 
 4. **`sr`** — standalone Python CLI, bash counterpart of `/read`. Writes the pointer files (all four, session_id-keyed when invoked from inside Claude Code). Accepts `sr <name>`, `sr <N>` from `sl`'s order, or `sr <substring>` (single-match only). No args prints the current pointer.
 
-5. **`sd`** — standalone Python CLI. Soft-deletes a session: moves the `.md` into `.local/sessions/archive/` and clears any pointer file (keyed or unkeyed, repo-local or global) that still references it. Same arg forms as `sr`. Fully reversible — `mv` the archived file back to restore. Completes the session CRUD: `/save` creates, `sl`/`sr` read, `/save` again updates, `sd` drops.
+5. **`sd`** — standalone Python CLI. Soft-deletes a session: moves the `.md` into `.local/sessions/archive/`, clears any pointer file (keyed or unkeyed, repo-local or global) that still references it, and removes its line from the `.local/sessions.md` index (which lists live sessions only). Same arg forms as `sr`. Fully reversible — `mv` the archived file back to restore. Completes the session CRUD: `/save` creates, `sl`/`sr` read, `/save` again updates, `sd` drops.
 
 6. **`statusline.sh`** — Claude Code status line (bash). Renders `cwd · branch · model · session-name (size) · ctx:N%`. Session file size sits immediately before live context usage so you read both as one "how much are we carrying" signal. Disk-only lookup (ignores `/rename`). Also writes a per-instance heartbeat (`~/.claude/runtime/instance-<session_id>.json`) so `/save`, `/read`, and `sr` can figure out which Claude terminal they're running in.
 
@@ -144,7 +144,7 @@ sd 3                     # archive row N from `sl`
 sd                       # show archive location + count
 ```
 
-`sd` moves the `.md` file into `.local/sessions/archive/` and clears any pointer file (any terminal, any repo) that was still pointing at it. Next `sl` / statusline render will no longer see it. Restore with a plain `mv` — `sd` prints the exact command. The session CRUD rounds out like this:
+`sd` moves the `.md` file into `.local/sessions/archive/`, clears any pointer file (any terminal, any repo) that was still pointing at it, and strips its line from the `.local/sessions.md` index. Next `sl` / statusline render will no longer see it. Restore with a plain `mv` — `sd` prints the exact command. The session CRUD rounds out like this:
 
 | Op | Slash (in chat) | Bash (in terminal) | Writes | Needs LLM |
 |---|---|---|---|---|

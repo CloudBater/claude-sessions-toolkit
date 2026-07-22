@@ -3,7 +3,8 @@
 referencing it. Disk-only; no LLM round-trip.
 
 The session file is moved to .local/sessions/archive/ so it doesn't show up in
-`sl` listings or the statusline, but is kept for easy restore. Any pointer file
+`sl` listings or the statusline, but is kept for easy restore. Its entry is also
+stripped from the .local/sessions.md index, which lists live sessions only. Any pointer file
 (.local/current-session*, ~/.claude/current-session*) whose content is the
 dropped name is deleted — so if any terminal was showing this session in the
 statusline, it quietly falls back to the next pointer in priority order (or to
@@ -140,6 +141,55 @@ def clear_pointers(repo: Path, name: str) -> int:
     return cleared
 
 
+def remove_from_index(repo: Path, name: str) -> int:
+    """Strip the session's entry from the .local/sessions.md 'Saved Sessions'
+    index so archived sessions stay invisible there.
+
+    Matches only the markdown link target (`](sessions/<name>.md)` or the
+    archive path), scoped to the region after the '## Saved Sessions' header, so
+    the ACTIVE-section notes above it (which mention session paths in passing)
+    are never touched. Consecutive blank lines left behind are squeezed.
+    Returns the number of lines removed.
+    """
+    index = repo / ".local" / "sessions.md"
+    if not index.is_file():
+        return 0
+    try:
+        lines = index.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines(keepends=True)
+    except OSError:
+        return 0
+
+    hdr = next(
+        (i for i, l in enumerate(lines) if l.lstrip().startswith("## Saved Sessions")),
+        None,
+    )
+    start = hdr + 1 if hdr is not None else 0
+    head, body = lines[:start], lines[start:]
+
+    targets = (f"](sessions/{name}.md)", f"](sessions/archive/{name}.md)")
+    kept = [l for l in body if not any(t in l for t in targets)]
+    removed = len(body) - len(kept)
+    if not removed:
+        return 0
+
+    squeezed: list[str] = []
+    prev_blank = False
+    for l in kept:
+        blank = l.strip() == ""
+        if blank and prev_blank:
+            continue
+        squeezed.append(l)
+        prev_blank = blank
+
+    try:
+        index.write_text("".join(head + squeezed), encoding="utf-8")
+    except OSError:
+        return 0
+    return removed
+
+
 def main() -> int:
     arg = " ".join(sys.argv[1:]).strip()
     repo = find_repo()
@@ -167,6 +217,7 @@ def main() -> int:
 
     dst = archive_session(sessions_dir, name)
     cleared = clear_pointers(repo, name)
+    unindexed = remove_from_index(repo, name)
 
     try:
         dst_display = dst.relative_to(repo)
@@ -177,6 +228,8 @@ def main() -> int:
     print(f"  Archived to: {dst_display}")
     if cleared:
         print(f"  Cleared {cleared} pointer file(s)")
+    if unindexed:
+        print(f"  Removed {unindexed} line(s) from sessions.md index")
     print(f"  Restore: mv {dst} {sessions_dir / (name + '.md')}")
     return 0
 
